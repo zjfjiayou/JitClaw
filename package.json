@@ -1,5 +1,5 @@
 {
-    "name": "clawx",
+    "name": "jitclaw",
     "version": "0.3.3-beta.0",
     "pnpm": {
         "onlyBuiltDependencies": [
@@ -26,9 +26,9 @@
             ]
         }
     },
-    "description": "ClawX - Graphical AI Assistant based on OpenClaw",
+    "description": "JitClaw - OpenClaw desktop app for the JitAI ecosystem",
     "main": "dist-electron/main/index.js",
-    "author": "ClawX Team",
+    "author": "JitClaw Team",
     "license": "MIT",
     "private": true,
     "scripts": {

@@ -36,8 +36,8 @@
       delete flat['HTTP-Referer'];
       delete flat['x-title'];
       delete flat['X-Title'];
-      flat['HTTP-Referer'] = 'https://claw-x.com';
-      flat['X-Title'] = 'ClawX';
+      flat['HTTP-Referer'] = 'https://github.com/zjfjiayou/JitClaw';
+      flat['X-Title'] = 'JitClaw';
       init.headers = flat;
     }
     return _f.call(globalThis, input, init);
