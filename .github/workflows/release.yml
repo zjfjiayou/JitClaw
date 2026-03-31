@@ -1,5 +1,5 @@
-# ClawX Release Workflow
-# Builds and publishes releases for macOS, Windows, and Linux
+# JitClaw Release Workflow
+# Builds release artifacts for macOS, Windows, and Linux, then uploads them to OSS
 
 name: Release
 
@@ -14,7 +14,7 @@ on:
         required: true
 
 permissions:
-  contents: write
+  contents: read
   actions: read
 
 jobs:
@@ -80,12 +80,9 @@ jobs:
           echo "=== Disk usage after cleanup ==="
           df -h /
 
-      # --publish never: prevent electron-builder from auto-publishing to GitHub.
-      # All artifacts are collected and published atomically in the publish job.
       - name: Build macOS
         if: matrix.platform == 'mac'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_LINK: ${{ secrets.MAC_CERTS }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTS_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -184,10 +181,10 @@ jobs:
       #
       # Actual latest.yml structure (from electron-builder NSIS):
       #   files:
-      #     - url: ClawX-0.2.4-win-x64.exe    ← files[] entries have url/sha512/size
+      #     - url: JitClaw-0.2.4-win-x64.exe  ← files[] entries have url/sha512/size
       #       sha512: <base64>
       #       size: 430775882
-      #   path: ClawX-0.2.4-win-arm64.exe      ← top-level has path/sha512 (no size!)
+      #   path: JitClaw-0.2.4-win-arm64.exe    ← top-level has path/sha512 (no size!)
       #   sha512: <base64>
       #   releaseDate: '...'
       - name: Update latest.yml sha512 after code signing
@@ -263,90 +260,6 @@ jobs:
             release/*.yml
             !release/builder-debug.yml
           retention-days: 7
-
-  # ──────────────────────────────────────────────────────────────
-  # Job: Publish to GitHub Releases
-  # ──────────────────────────────────────────────────────────────
-  publish:
-    needs: release
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: Download release artifacts only
-        uses: actions/download-artifact@v4
-        with:
-          path: release-artifacts
-          pattern: release-*
-
-      - name: List all downloaded artifacts
-        run: |
-          echo "=== All artifacts downloaded ==="
-          find release-artifacts/ -type f -exec ls -lh {} \;
-          echo ""
-          echo "=== File tree ==="
-          tree release-artifacts/ || find release-artifacts/ -print
-
-      - name: Remove duplicate builder-debug files
-        run: |
-          echo "Removing builder-debug.yml files to avoid duplicate asset upload conflicts..."
-          find release-artifacts/ -name "builder-debug.yml" -delete -print || true
-
-      - name: Create GitHub Release (as pre-release)
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
-        with:
-          files: |
-            release-artifacts/**/*.dmg
-            release-artifacts/**/*.zip
-            release-artifacts/**/*.exe
-            release-artifacts/**/*.AppImage
-            release-artifacts/**/*.deb
-            release-artifacts/**/*.rpm
-            release-artifacts/**/*.yml
-          draft: false
-          prerelease: true
-          make_latest: false
-          generate_release_notes: true
-          body: |
-            ## 🚀 ClawX ${{ github.ref_name }}
-            
-            ClawX - Graphical AI Assistant based on OpenClaw
-            
-            ### 📦 Downloads
-            
-            Please select the appropriate installer for your operating system and architecture:
-            
-            #### macOS
-            - **Apple Silicon (M1/M2/M3/M4)**: `ClawX-*-mac-arm64.dmg`
-            - **Intel (x64)**: `ClawX-*-mac-x64.dmg`
-            
-            #### Windows
-            - **Installer (x64)**: `ClawX-*-win-x64.exe`
-            - **Installer (ARM64)**: `ClawX-*-win-arm64.exe`
-            
-            #### Linux
-            - **AppImage (x64)**: `ClawX-*-linux-x86_64.AppImage` (Universal format, recommended)
-            - **AppImage (ARM64)**: `ClawX-*-linux-arm64.AppImage`
-            - **Debian/Ubuntu (x64)**: `ClawX-*-linux-amd64.deb`
-            - **Debian/Ubuntu (ARM64)**: `ClawX-*-linux-arm64.deb`
-            - **RPM (x64)**: `ClawX-*-linux-x86_64.rpm`
-            
-            ### 📝 Release Notes
-            
-            See the auto-generated release notes below for detailed changes.
-            
-            ### ⚠️ Installation Notes
-            
-            - **macOS**: On first launch, you may see "cannot verify developer". Go to System Preferences → Security & Privacy to allow the app to run
-            - **Windows**: SmartScreen may block the app. Click "More info" → "Run anyway" to proceed
-            - **Linux AppImage**: First run `chmod +x ClawX-*.AppImage` to add execute permission. On Ubuntu 22.04 you may also need `sudo apt install libfuse2`; on Ubuntu 24.04 use `sudo apt install libfuse2t64`
-            - **Linux .deb (Ubuntu 24.04)**: If installation fails due to missing dependencies, use `sudo apt install libgtk-3-0t64 libnotify4t64 libxss1t64` before installing
-            
-            ---
-            
-            💬 Found an issue? Please submit an [Issue](https://github.com/${{ github.repository }}/issues)
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ──────────────────────────────────────────────────────────────
   # Job: Upload to Alibaba Cloud OSS
@@ -435,26 +348,26 @@ jobs:
             --arg channel "$CHANNEL" \
             --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --arg base "$BASE_URL" \
-            --arg changelog "https://github.com/${{ github.repository }}/releases/tag/v${VERSION}" \
+            --arg changelog "https://github.com/${{ github.repository }}/tree/v${VERSION}" \
             '{
               version: $version,
               channel: $channel,
               releaseDate: $date,
               downloads: {
                 mac: {
-                  x64: ($base + "/ClawX-" + $version + "-mac-x64.dmg"),
-                  arm64: ($base + "/ClawX-" + $version + "-mac-arm64.dmg")
+                  x64: ($base + "/JitClaw-" + $version + "-mac-x64.dmg"),
+                  arm64: ($base + "/JitClaw-" + $version + "-mac-arm64.dmg")
                 },
                 win: {
-                  x64: ($base + "/ClawX-" + $version + "-win-x64.exe"),
-                  arm64: ($base + "/ClawX-" + $version + "-win-arm64.exe")
+                  x64: ($base + "/JitClaw-" + $version + "-win-x64.exe"),
+                  arm64: ($base + "/JitClaw-" + $version + "-win-arm64.exe")
                 },
                 linux: {
-                  deb_amd64: ($base + "/ClawX-" + $version + "-linux-amd64.deb"),
-                  deb_arm64: ($base + "/ClawX-" + $version + "-linux-arm64.deb"),
-                  appimage_x64: ($base + "/ClawX-" + $version + "-linux-x86_64.AppImage"),
-                  appimage_arm64: ($base + "/ClawX-" + $version + "-linux-arm64.AppImage"),
-                  rpm_x64: ($base + "/ClawX-" + $version + "-linux-x86_64.rpm")
+                  deb_amd64: ($base + "/JitClaw-" + $version + "-linux-amd64.deb"),
+                  deb_arm64: ($base + "/JitClaw-" + $version + "-linux-arm64.deb"),
+                  appimage_x64: ($base + "/JitClaw-" + $version + "-linux-x86_64.AppImage"),
+                  appimage_arm64: ($base + "/JitClaw-" + $version + "-linux-arm64.AppImage"),
+                  rpm_x64: ($base + "/JitClaw-" + $version + "-linux-x86_64.rpm")
                 }
               },
               changelog: $changelog
@@ -537,39 +450,3 @@ jobs:
           
           echo ""
           echo "All files uploaded and verified successfully!"
-
-  # ──────────────────────────────────────────────────────────────
-  # Job: Finalize Release
-  # Promotes the GitHub Release from pre-release to latest AFTER
-  # both GitHub Release assets and OSS uploads are fully complete.
-  # This ensures /releases/latest API never returns an incomplete
-  # release — the website and electron-updater only see it when
-  # all platform artifacts are ready.
-  # ──────────────────────────────────────────────────────────────
-  finalize:
-    needs: [publish, upload-oss]
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
-
-    steps:
-      - name: Promote release from pre-release to latest
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="${GITHUB_REF#refs/tags/}"
-          IS_PRERELEASE_CHANNEL=false
-
-          if [[ "$TAG" == *"alpha"* ]] || [[ "$TAG" == *"beta"* ]]; then
-            IS_PRERELEASE_CHANNEL=true
-          fi
-
-          if [ "$IS_PRERELEASE_CHANNEL" = "true" ]; then
-            echo "Tag $TAG is an alpha/beta release — keeping as pre-release."
-          else
-            echo "Promoting $TAG from pre-release to latest release..."
-            gh release edit "$TAG" \
-              --prerelease=false \
-              --latest \
-              --repo "${{ github.repository }}"
-            echo "Release $TAG is now the latest release."
-          fi

@@ -49,9 +49,7 @@ jobs:
       - name: Download uv binaries for Windows
         run: pnpm run uv:download:win
 
-      - name: Build Windows package (no publish)
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build Windows package
         run: pnpm run package:win
 
       - name: Upload Windows Installer (x64)

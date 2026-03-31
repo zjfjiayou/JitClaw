@@ -2,7 +2,7 @@
  * Auto-Updater Module
  * Handles automatic application updates using electron-updater
  *
- * Update provider is configured for the JitClaw GitHub Releases feed.
+ * Update provider is configured for the JitClaw OSS feed.
  */
 import { autoUpdater, UpdateInfo, ProgressInfo, UpdateDownloadedEvent } from 'electron-updater';
 import { BrowserWindow, app, ipcMain } from 'electron';
@@ -10,8 +10,8 @@ import { logger } from '../utils/logger';
 import { EventEmitter } from 'events';
 import { setQuitting } from './app-state';
 
-const GITHUB_OWNER = 'zjfjiayou';
-const GITHUB_REPO = 'JitClaw';
+const OSS_UPDATE_BASE_URL = 'https://oss.intelli-spectrum.com';
+type FeedChannel = 'latest' | 'beta' | 'alpha';
 
 export interface UpdateStatus {
   status: 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error';
@@ -34,9 +34,16 @@ export interface UpdaterEvents {
  * Detect the update channel from a semver version string.
  * e.g. "0.1.8-alpha.0" → "alpha", "1.0.0-beta.1" → "beta", "1.0.0" → "latest"
  */
-function detectChannel(version: string): string {
+function detectChannel(version: string): FeedChannel {
   const match = version.match(/-([a-zA-Z]+)/);
-  return match ? match[1] : 'latest';
+  if (!match) return 'latest';
+  return match[1] === 'beta' ? 'beta' : 'alpha';
+}
+
+function resolveFeedChannel(channel: 'stable' | 'beta' | 'dev'): FeedChannel {
+  if (channel === 'stable') return 'latest';
+  if (channel === 'beta') return 'beta';
+  return 'alpha';
 }
 
 export class AppUpdater extends EventEmitter {
@@ -71,18 +78,20 @@ export class AppUpdater extends EventEmitter {
     const channel = detectChannel(version);
 
     logger.info(
-      `[Updater] Version: ${version}, channel: ${channel}, provider: github/${GITHUB_OWNER}/${GITHUB_REPO}`,
+      `[Updater] Version: ${version}, channel: ${channel}, provider: generic/${OSS_UPDATE_BASE_URL}/${channel}`,
     );
 
-    autoUpdater.channel = channel;
-
-    autoUpdater.setFeedURL({
-      provider: 'github',
-      owner: GITHUB_OWNER,
-      repo: GITHUB_REPO,
-    });
+    this.applyFeed(channel);
 
     this.setupListeners();
+  }
+
+  private applyFeed(channel: FeedChannel): void {
+    autoUpdater.channel = channel;
+    autoUpdater.setFeedURL({
+      provider: 'generic',
+      url: `${OSS_UPDATE_BASE_URL}/${channel}`,
+    });
   }
 
   /**
@@ -162,7 +171,8 @@ export class AppUpdater extends EventEmitter {
 
   /**
    * Check for updates.
-   * electron-updater automatically tries providers defined in electron-builder.yml in order.
+   * The feed is configured explicitly in the main process so packaging config
+   * stays independent from the distribution backend.
    *
    * In dev mode (not packed), autoUpdater.checkForUpdates() silently returns
    * null without emitting any events, so we must detect this and force a
@@ -261,7 +271,7 @@ export class AppUpdater extends EventEmitter {
    * Set update channel (stable, beta, dev)
    */
   setChannel(channel: 'stable' | 'beta' | 'dev'): void {
-    autoUpdater.channel = channel;
+    this.applyFeed(resolveFeedChannel(channel));
   }
 
   /**

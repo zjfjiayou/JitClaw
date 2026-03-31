@@ -50,13 +50,6 @@ asarUnpack:
 # own process — @electron/rebuild must NOT touch them.
 npmRebuild: false
 
-# Auto-update configuration
-# JitClaw ships updates from its own GitHub Releases.
-publish:
-  - provider: github
-    owner: zjfjiayou
-    repo: JitClaw
-
 # macOS Configuration
 mac:
   extraResources:

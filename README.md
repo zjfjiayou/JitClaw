@@ -25,7 +25,6 @@
   <a href="https://discord.com/invite/84Kex3GGAh" target="_blank">
   <img src="https://img.shields.io/discord/1399603591471435907?logo=discord&labelColor=%20%235462eb&logoColor=%20%23f5f5f5&color=%20%235462eb" alt="chat on Discord" />
   </a>
-  <img src="https://img.shields.io/github/downloads/zjfjiayou/JitClaw/total?color=%23027DEB" alt="Downloads" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License" />
 </p>
 
@@ -146,7 +145,7 @@ In **Settings → General**, you can enable **Launch at system startup** so JitC
 
 #### Pre-built Releases (Recommended)
 
-Download the latest release for your platform from the [Releases](https://github.com/zjfjiayou/JitClaw/releases) page.
+Pre-built installers are distributed through the project's OSS release channel instead of GitHub Releases.
 
 #### Build from Source
 
