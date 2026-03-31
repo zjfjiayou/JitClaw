@@ -1,4 +1,4 @@
-# ClawX Application Icons
+# JitClaw Application Icons
 
 This directory contains the application icons for all supported platforms.
 
@@ -6,7 +6,8 @@ This directory contains the application icons for all supported platforms.
 
 | File | Platform | Description |
 |------|----------|-------------|
-| `icon.svg` | Source | Vector source for all icons |
+| `icon-source.png` | Source | Master PNG transplanted from the legacy `jitdesktop` app |
+| `icon.svg` | Source | Optional vector source fallback |
 | `icon.icns` | macOS | Apple Icon Image format |
 | `icon.ico` | Windows | Windows ICO format |
 | `icon.png` | All | 512x512 PNG fallback |
@@ -19,11 +20,8 @@ This directory contains the application icons for all supported platforms.
 ### Using the Script
 
 ```bash
-# Make the script executable
-chmod +x scripts/generate-icons.sh
-
 # Run icon generation
-./scripts/generate-icons.sh
+pnpm icons
 ```
 
 ### Prerequisites
@@ -47,7 +45,7 @@ If you prefer to generate icons manually:
 
 1. **macOS (.icns)**
    - Create a `.iconset` folder with properly named PNGs
-   - Run: `iconutil -c icns -o icon.icns ClawX.iconset`
+   - Run: `iconutil -c icns -o icon.icns JitClaw.iconset`
 
 2. **Windows (.ico)**
    - Use ImageMagick: `convert icon_16.png icon_32.png icon_64.png icon_128.png icon_256.png icon.ico`
@@ -59,20 +57,20 @@ If you prefer to generate icons manually:
 
 ### Application Icon
 - **Corner Radius**: ~20% of width (200px on 1024px canvas)
-- **Foreground**: White claw symbol with "X" accent
+- **Foreground**: Use the current approved JitClaw brand mark
 - **Safe Area**: Keep 10% margin from edges
 
 ### macOS Tray Icon
 - **Format**: Single-color (black) on transparent background
 - **Size**: 22x22 pixels (system automatically handles @2x retina)
 - **Naming**: Must end with "Template.png" for automatic template mode
-- **Design**: Simplified monochrome version of main icon (ClawX logo)
+- **Design**: Simplified monochrome version of the JitClaw logo
 - **Source**: Use `tray-icon-template.svg` as the source
 - **Important**: Must be pure black (#000000) on transparent background - no gradients or colors
 
 ## Updating the Icon
 
-1. Edit `icon.svg` with your vector editor (Figma, Illustrator, Inkscape)
+1. Replace `icon-source.png` with the latest brand-approved master asset
 2. For macOS tray icon, edit `tray-icon-template.svg` (must be single-color black on transparent)
 3. Run `node scripts/generate-icons.mjs`
 4. Verify generated icons look correct

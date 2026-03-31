@@ -10,13 +10,15 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 const ICONS_DIR = path.join(PROJECT_ROOT, 'resources', 'icons');
+const PNG_SOURCE = path.join(ICONS_DIR, 'icon-source.png');
 const SVG_SOURCE = path.join(ICONS_DIR, 'icon.svg');
+const MASTER_SOURCE = fs.existsSync(PNG_SOURCE) ? PNG_SOURCE : SVG_SOURCE;
 
-echo`🎨 Generating ClawX icons using Node.js...`;
+echo`🎨 Generating JitClaw icons using Node.js...`;
 
-// Check if SVG source exists
-if (!fs.existsSync(SVG_SOURCE)) {
-  echo`❌ SVG source not found: ${SVG_SOURCE}`;
+// Prefer the transplanted PNG master from the legacy jitdesktop app.
+if (!fs.existsSync(MASTER_SOURCE)) {
+  echo`❌ Icon source not found: ${MASTER_SOURCE}`;
   process.exit(1);
 }
 
@@ -25,8 +27,8 @@ await fs.ensureDir(ICONS_DIR);
 
 try {
   // 1. Generate Master PNG Buffer (1024x1024)
-  echo`  Processing SVG source...`;
-  const masterPngBuffer = await sharp(SVG_SOURCE)
+  echo`  Processing icon source...`;
+  const masterPngBuffer = await sharp(MASTER_SOURCE)
     .resize(1024, 1024)
     .png() // Ensure it's PNG
     .toBuffer();
