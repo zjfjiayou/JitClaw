@@ -349,13 +349,14 @@ function normalizeAgentsDefaultsCompactionMode(config: Record<string, unknown>):
 async function writeOpenClawJson(config: Record<string, unknown>): Promise<void> {
   normalizeAgentsDefaultsCompactionMode(config);
 
-  // Ensure SIGUSR1 graceful reload is authorized by OpenClaw config.
+  // Ensure built-in admin commands remain available in managed configs.
   const commands = (
     config.commands && typeof config.commands === 'object'
       ? { ...(config.commands as Record<string, unknown>) }
       : {}
   ) as Record<string, unknown>;
   commands.restart = true;
+  commands.mcp = true;
   config.commands = commands;
 
   await writeJsonFile(OPENCLAW_CONFIG_PATH, config);
@@ -692,6 +693,7 @@ type ProviderEntryBuildOptions = {
   headers?: Record<string, string>;
   authHeader?: boolean;
   modelIds?: string[];
+  modelEntries?: Array<Record<string, unknown>>;
   includeRegistryModels?: boolean;
   mergeExistingModels?: boolean;
 };
@@ -749,13 +751,14 @@ function upsertOpenClawProviderEntry(
   const registryModels = options.includeRegistryModels
     ? ((getProviderConfig(provider)?.models ?? []).map((m) => ({ ...m })) as Array<Record<string, unknown>>)
     : [];
+  const explicitModels = (options.modelEntries ?? []).map((model) => ({ ...model }));
   const runtimeModels = (options.modelIds ?? []).map((id) => ({ id, name: id }));
 
   const nextProvider: Record<string, unknown> = {
     ...existingProvider,
     baseUrl: options.baseUrl,
     api: options.api,
-    models: mergeProviderModels(registryModels, existingModels, runtimeModels),
+    models: mergeProviderModels(registryModels, existingModels, explicitModels, runtimeModels),
   };
   if (options.apiKeyEnv) nextProvider.apiKey = options.apiKeyEnv;
   if (options.headers !== undefined) {
@@ -813,7 +816,8 @@ function ensureMoonshotKimiWebSearchCnBaseUrl(config: Record<string, unknown>, p
 export async function syncProviderConfigToOpenClaw(
   provider: string,
   modelId: string | undefined,
-  override: RuntimeProviderConfigOverride
+  override: RuntimeProviderConfigOverride,
+  modelEntries?: Array<Record<string, unknown>>,
 ): Promise<void> {
   return withConfigLock(async () => {
     const config = await readOpenClawJson();
@@ -826,6 +830,7 @@ export async function syncProviderConfigToOpenClaw(
         apiKeyEnv: override.apiKeyEnv,
         headers: override.headers,
         modelIds: modelId ? [modelId] : [],
+        modelEntries,
       });
     }
 
@@ -887,6 +892,7 @@ export async function setOpenClawDefaultModelWithOverride(
         headers: override.headers,
         authHeader: override.authHeader,
         modelIds: [modelId, ...fallbackModelIds],
+        mergeExistingModels: true,
       });
     }
 
@@ -1156,7 +1162,21 @@ export async function syncSessionIdleMinutesToOpenClaw(): Promise<void> {
 type AgentModelProviderEntry = {
   baseUrl?: string;
   api?: string;
-  models?: Array<{ id: string; name: string }>;
+  models?: Array<{
+    id: string;
+    name: string;
+    reasoning?: boolean;
+    input?: Array<'text' | 'image'>;
+    cost?: {
+      input?: number;
+      output?: number;
+      cacheRead?: number;
+      cacheWrite?: number;
+    };
+    contextWindow?: number;
+    maxTokens?: number;
+    api?: string;
+  }>;
   apiKey?: string;
   /** When true, pi-ai sends Authorization: Bearer instead of x-api-key */
   authHeader?: boolean;
@@ -1191,7 +1211,7 @@ async function updateModelsJsonProviderEntriesForAgents(
 
     const mergedModels = (entry.models ?? []).map((m) => {
       const prev = existingModels.find((e) => e.id === m.id);
-      return prev ? { ...prev, id: m.id, name: m.name } : { ...m };
+      return prev ? { ...prev, ...m, id: m.id, name: m.name } : { ...m };
     });
 
     if (entry.baseUrl !== undefined) existing.baseUrl = entry.baseUrl;
@@ -1354,7 +1374,7 @@ export async function sanitizeOpenClawConfig(): Promise<void> {
     }
 
     // ── commands section ───────────────────────────────────────────
-    // Required for SIGUSR1 in-process reload authorization.
+    // Required for SIGUSR1 in-process reload authorization and MCP config updates.
     const commands = (
       config.commands && typeof config.commands === 'object'
         ? { ...(config.commands as Record<string, unknown>) }
@@ -1365,6 +1385,12 @@ export async function sanitizeOpenClawConfig(): Promise<void> {
       config.commands = commands;
       modified = true;
       console.log('[sanitize] Enabling commands.restart for graceful reload support');
+    }
+    if (commands.mcp !== true) {
+      commands.mcp = true;
+      config.commands = commands;
+      modified = true;
+      console.log('[sanitize] Enabling commands.mcp for managed MCP configuration');
     }
 
     // ── tools.web.search.kimi ─────────────────────────────────────

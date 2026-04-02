@@ -10,8 +10,65 @@
     "sinceRestart": "自上次重启",
     "gatewayNotRunning": "网关未运行",
     "models": {
-        "title": "模型",
-        "subtitle": "管理您的 AI 提供商并监控 Token 用量"
+        "title": "用量",
+        "subtitle": "输入系统访问令牌，查看用量与余额"
+    },
+    "usage": {
+        "title": "用量",
+        "subtitle": "输入系统访问令牌，查看账单金额、消费明细与余额。",
+        "newApi": {
+            "title": "访问令牌",
+            "description": "保存系统访问令牌后，即可查看账单金额、消费明细与余额。",
+            "configured": "已连接",
+            "accessToken": "系统访问令牌",
+            "accessTokenPlaceholder": "输入您的系统访问令牌",
+            "accessTokenHelp": "在 New API 控制台的「个人设置 → 安全设置」中生成。模型调用所需的 API key 会自动获取。",
+            "saved": "访问令牌已保存",
+            "pending": "输入系统访问令牌即可连接。模型调用所需的 API key 会自动获取。",
+            "noInferenceKey": "未找到可用的 API 令牌，请在 New API 控制台中创建。",
+            "inferenceToken": "当前令牌：{{name}}",
+            "topup": {
+                "button": "充值",
+                "title": "账户充值",
+                "description": "输入充值金额并选择支付方式，JitClaw 会在浏览器中打开支付页面。",
+                "amount": "充值金额",
+                "amountPlaceholder": "输入充值金额",
+                "minAmount": "最低充值 {{amount}}",
+                "paymentMethod": "支付方式",
+                "selectPaymentMethod": "请选择一个支付方式",
+                "loading": "正在加载充值配置...",
+                "unavailable": "当前服务未开启在线充值",
+                "submit": "去支付",
+                "cancel": "取消",
+                "close": "关闭",
+                "paymentOpenedTitle": "支付页面已打开",
+                "paymentOpenedDescription": "请在浏览器完成支付，完成后回到这里刷新余额。",
+                "refresh": "我已完成支付，刷新余额"
+            }
+        },
+        "overview": {
+            "loading": "正在加载用量...",
+            "error": "加载用量概览失败",
+            "balanceLabel": "余额",
+            "balance": "${{amount}}",
+            "usedLabel": "已消费",
+            "used": "${{amount}}",
+            "hardLimitLabel": "额度上限",
+            "hardLimit": "${{amount}}",
+            "requestsLabel": "请求数",
+            "requests": "{{count}}",
+            "quotaLabel": "配额",
+            "quota": "{{amount}}"
+        },
+        "remoteLogs": {
+            "title": "最近 API 调用",
+            "description": "最近消费日志。",
+            "account": "账户 {{user}}",
+            "empty": "暂无最近 API 调用记录",
+            "request": "请求 {{id}}",
+            "quota": "消费 {{amount}}",
+            "unknownTime": "未知时间"
+        }
     },
     "quickActions": {
         "title": "快捷操作",
@@ -32,8 +89,8 @@
     "enableSome": "启用一些技能",
     "more": "+{{count}} 更多",
     "recentTokenHistory": {
-        "title": "最近 Token 消耗",
-        "description": "展示最近的助手回复与工具结果中的模型/提供商用量记录。",
+        "title": "本地 Token 历史",
+        "description": "展示本机 OpenClaw 会话 transcript 中解析出的 token 用量记录，不包含远端账户余额。",
         "loading": "正在加载 token 消耗历史...",
         "empty": "还没有 token 消耗历史",
         "groupByModel": "按模型",

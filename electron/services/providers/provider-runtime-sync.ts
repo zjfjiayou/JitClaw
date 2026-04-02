@@ -17,6 +17,10 @@ import {
 } from '../../utils/openclaw-auth';
 import { logger } from '../../utils/logger';
 import { listAgentsSnapshot } from '../../utils/agent-config';
+import {
+  getNewApiModelCatalogEntry,
+  NEW_API_RUNTIME_PROVIDER_KEY,
+} from '../../utils/new-api-models';
 
 const GOOGLE_OAUTH_RUNTIME_PROVIDER = 'google-gemini-cli';
 const GOOGLE_OAUTH_DEFAULT_MODEL_REF = `${GOOGLE_OAUTH_RUNTIME_PROVIDER}/gemini-3-pro-preview`;
@@ -28,6 +32,62 @@ type RuntimeProviderSyncContext = {
   meta: ReturnType<typeof getProviderConfig>;
   api: string;
 };
+
+type RuntimeAgentModel = {
+  id: string;
+  name: string;
+  reasoning?: boolean;
+  input?: Array<'text' | 'image'>;
+  cost?: {
+    input?: number;
+    output?: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+  };
+  contextWindow?: number;
+  maxTokens?: number;
+  api?: string;
+};
+
+const NEW_API_PROVIDER_IDS = new Set(['new-api']);
+
+function isBundledNewApiProvider(
+  config: ProviderConfig,
+  runtimeProviderKey?: string,
+): boolean {
+  return config.type === 'custom'
+    && (
+      NEW_API_PROVIDER_IDS.has(config.id)
+      || runtimeProviderKey === NEW_API_RUNTIME_PROVIDER_KEY
+    );
+}
+
+function buildRuntimeAgentModel(
+  config: ProviderConfig,
+  modelId: string,
+  api: string,
+  runtimeProviderKey?: string,
+): RuntimeAgentModel {
+  const normalizedModelId = modelId.trim();
+  const bundledNewApiModel = isBundledNewApiProvider(config, runtimeProviderKey)
+    ? getNewApiModelCatalogEntry(normalizedModelId)
+    : undefined;
+
+  if (!bundledNewApiModel) {
+    return { id: normalizedModelId, name: normalizedModelId };
+  }
+
+  return {
+    id: normalizedModelId,
+    name: bundledNewApiModel.name,
+    reasoning: false,
+    input: [...bundledNewApiModel.input],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 200000,
+    maxTokens: 8192,
+    api,
+  };
+}
 
 function normalizeProviderBaseUrl(
   config: ProviderConfig,
@@ -246,6 +306,12 @@ export async function syncAllProviderAuthToRuntime(): Promise<void> {
       });
     }
   }
+
+  try {
+    await syncAgentModelsToRuntime();
+  } catch (err) {
+    logger.warn('[provider-runtime] Failed to sync per-agent model registries during startup auth sync:', err);
+  }
 }
 
 async function syncProviderSecretToRuntime(
@@ -298,39 +364,99 @@ async function resolveRuntimeSyncContext(config: ProviderConfig): Promise<Runtim
   };
 }
 
+function addModelIdForRuntimeProvider(
+  target: Set<string>,
+  candidate: string | undefined,
+  runtimeProviderKey: string,
+): void {
+  if (!candidate) {
+    return;
+  }
+
+  const trimmed = candidate.trim();
+  if (!trimmed) {
+    return;
+  }
+
+  const parsed = parseModelRef(trimmed);
+  if (parsed) {
+    if (parsed.providerKey !== runtimeProviderKey) {
+      return;
+    }
+    target.add(parsed.modelId);
+    return;
+  }
+
+  target.add(trimmed);
+}
+
+async function collectRuntimeProviderModels(
+  config: ProviderConfig,
+  runtimeProviderKey: string,
+  api: string,
+): Promise<RuntimeAgentModel[]> {
+  const snapshot = await listAgentsSnapshot();
+  const modelIds = new Set<string>();
+
+  addModelIdForRuntimeProvider(modelIds, config.model, runtimeProviderKey);
+  for (const fallbackModel of config.fallbackModels ?? []) {
+    addModelIdForRuntimeProvider(modelIds, fallbackModel, runtimeProviderKey);
+  }
+
+  for (const agent of snapshot.agents) {
+    const parsed = parseModelRef(agent.modelRef || '');
+    if (!parsed || parsed.providerKey !== runtimeProviderKey) {
+      continue;
+    }
+    modelIds.add(parsed.modelId);
+  }
+
+  return Array.from(modelIds).map((modelId) =>
+    buildRuntimeAgentModel(config, modelId, api, runtimeProviderKey)
+  );
+}
+
 async function syncRuntimeProviderConfig(
   config: ProviderConfig,
   context: RuntimeProviderSyncContext,
 ): Promise<void> {
+  const models = await collectRuntimeProviderModels(
+    config,
+    context.runtimeProviderKey,
+    context.api,
+  );
+
   await syncProviderConfigToOpenClaw(context.runtimeProviderKey, config.model, {
     baseUrl: normalizeProviderBaseUrl(config, config.baseUrl || context.meta?.baseUrl, context.api),
     api: context.api,
     apiKeyEnv: context.meta?.apiKeyEnv,
     headers: config.headers ?? context.meta?.headers,
-  });
+  }, models);
 }
 
-async function syncCustomProviderAgentModel(
+async function syncProviderAgentModelsToRuntime(
   config: ProviderConfig,
   runtimeProviderKey: string,
-  apiKey: string | undefined,
 ): Promise<void> {
-  if (config.type !== 'custom') {
-    return;
-  }
-
-  const resolvedKey = apiKey !== undefined ? (apiKey.trim() || null) : await getApiKey(config.id);
-  if (!resolvedKey || !config.baseUrl) {
-    return;
-  }
-
-  const modelId = config.model;
-  await updateAgentModelProvider(runtimeProviderKey, {
-    baseUrl: normalizeProviderBaseUrl(config, config.baseUrl, config.apiProtocol || 'openai-completions'),
-    api: config.apiProtocol || 'openai-completions',
-    models: modelId ? [{ id: modelId, name: modelId }] : [],
-    apiKey: resolvedKey,
+  const snapshot = await listAgentsSnapshot();
+  const targets = snapshot.agents.filter((agent) => {
+    const parsed = parseModelRef(agent.modelRef || '');
+    return parsed?.providerKey === runtimeProviderKey;
   });
+
+  for (const agent of targets) {
+    const parsed = parseModelRef(agent.modelRef || '');
+    if (!parsed) {
+      continue;
+    }
+
+    const entry = await buildAgentModelProviderEntry(config, parsed.modelId, runtimeProviderKey);
+    if (!entry) {
+      continue;
+    }
+
+    await updateSingleAgentModelProvider(agent.id, runtimeProviderKey, entry);
+  }
 }
 
 async function syncProviderToRuntime(
@@ -344,7 +470,7 @@ async function syncProviderToRuntime(
 
   await syncProviderSecretToRuntime(config, context.runtimeProviderKey, apiKey);
   await syncRuntimeProviderConfig(config, context);
-  await syncCustomProviderAgentModel(config, context.runtimeProviderKey, apiKey);
+  await syncProviderAgentModelsToRuntime(config, context.runtimeProviderKey);
   return context;
 }
 
@@ -394,10 +520,11 @@ async function buildRuntimeProviderConfigMap(): Promise<Map<string, ProviderConf
 async function buildAgentModelProviderEntry(
   config: ProviderConfig,
   modelId: string,
+  runtimeProviderKey?: string,
 ): Promise<{
   baseUrl?: string;
   api?: string;
-  models?: Array<{ id: string; name: string }>;
+  models?: RuntimeAgentModel[];
   apiKey?: string;
   authHeader?: boolean;
 } | null> {
@@ -426,7 +553,7 @@ async function buildAgentModelProviderEntry(
   return {
     baseUrl,
     api,
-    models: [{ id: modelId, name: modelId }],
+    models: [buildRuntimeAgentModel(config, modelId, api, runtimeProviderKey)],
     apiKey,
     authHeader,
   };
@@ -456,7 +583,7 @@ async function syncAgentModelsToRuntime(agentIds?: Set<string>): Promise<void> {
       continue;
     }
 
-    const entry = await buildAgentModelProviderEntry(providerConfig, parsed.modelId);
+    const entry = await buildAgentModelProviderEntry(providerConfig, parsed.modelId, parsed.providerKey);
     if (!entry) {
       continue;
     }

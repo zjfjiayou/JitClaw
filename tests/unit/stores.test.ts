@@ -5,6 +5,18 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useSettingsStore } from '@/stores/settings';
 import { useGatewayStore } from '@/stores/gateway';
 
+function mockHostApiSuccess(): void {
+  const invoke = vi.mocked(window.electron.ipcRenderer.invoke);
+  invoke.mockResolvedValueOnce({
+    ok: true,
+    data: {
+      status: 200,
+      ok: true,
+      json: { success: true },
+    },
+  });
+}
+
 describe('Settings Store', () => {
   beforeEach(() => {
     // Reset store to default state
@@ -41,17 +53,10 @@ describe('Settings Store', () => {
     setSidebarCollapsed(true);
     expect(useSettingsStore.getState().sidebarCollapsed).toBe(true);
   });
-  
+
   it('should unlock dev mode', () => {
+    mockHostApiSuccess();
     const invoke = vi.mocked(window.electron.ipcRenderer.invoke);
-    invoke.mockResolvedValueOnce({
-      ok: true,
-      data: {
-        status: 200,
-        ok: true,
-        json: { success: true },
-      },
-    });
 
     const { setDevModeUnlocked } = useSettingsStore.getState();
     setDevModeUnlocked(true);
@@ -67,15 +72,8 @@ describe('Settings Store', () => {
   });
 
   it('should persist launch-at-startup setting through host api', () => {
+    mockHostApiSuccess();
     const invoke = vi.mocked(window.electron.ipcRenderer.invoke);
-    invoke.mockResolvedValueOnce({
-      ok: true,
-      data: {
-        status: 200,
-        ok: true,
-        json: { success: true },
-      },
-    });
 
     const { setLaunchAtStartup } = useSettingsStore.getState();
     setLaunchAtStartup(true);
@@ -85,6 +83,40 @@ describe('Settings Store', () => {
       'hostapi:fetch',
       expect.objectContaining({
         path: '/api/settings/launchAtStartup',
+        method: 'PUT',
+      }),
+    );
+  });
+
+  it('should persist auto-check update setting through host api', () => {
+    mockHostApiSuccess();
+    const invoke = vi.mocked(window.electron.ipcRenderer.invoke);
+
+    const { setAutoCheckUpdate } = useSettingsStore.getState();
+    setAutoCheckUpdate(false);
+
+    expect(useSettingsStore.getState().autoCheckUpdate).toBe(false);
+    expect(invoke).toHaveBeenCalledWith(
+      'hostapi:fetch',
+      expect.objectContaining({
+        path: '/api/settings/autoCheckUpdate',
+        method: 'PUT',
+      }),
+    );
+  });
+
+  it('should persist auto-download update setting through host api', () => {
+    mockHostApiSuccess();
+    const invoke = vi.mocked(window.electron.ipcRenderer.invoke);
+
+    const { setAutoDownloadUpdate } = useSettingsStore.getState();
+    setAutoDownloadUpdate(true);
+
+    expect(useSettingsStore.getState().autoDownloadUpdate).toBe(true);
+    expect(invoke).toHaveBeenCalledWith(
+      'hostapi:fetch',
+      expect.objectContaining({
+        path: '/api/settings/autoDownloadUpdate',
         method: 'PUT',
       }),
     );

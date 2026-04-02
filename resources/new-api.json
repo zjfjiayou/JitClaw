@@ -1,0 +1,16 @@
+{
+  "apiLabel": "New API",
+  "baseUrl": "http://49.235.172.27:3000",
+  "endpoints": {
+    "models": "/v1/models",
+    "userSelfAccessToken": "/api/user/self/access-token",
+    "userSelf": "/api/user/self",
+    "tokenList": "/api/token/",
+    "logSelf": "/api/log/self",
+    "logSelfStat": "/api/log/self/stat",
+    "billingSubscription": "/dashboard/billing/subscription",
+    "billingUsage": "/dashboard/billing/usage",
+    "topupInfo": "/api/user/topup/info",
+    "topupPay": "/api/user/pay"
+  }
+}

@@ -1,7 +1,8 @@
 import electronBinaryPath from 'electron';
 import { _electron as electron, expect, test as base, type ElectronApplication, type Page } from '@playwright/test';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
-import { createServer } from 'node:net';
+import { createServer as createHttpServer } from 'node:http';
+import { createServer as createNetServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -22,7 +23,7 @@ const electronEntry = join(repoRoot, 'dist-electron/main/index.js');
 
 async function allocatePort(): Promise<number> {
   return await new Promise((resolvePort, reject) => {
-    const server = createServer();
+    const server = createNetServer();
     server.once('error', reject);
     server.listen(0, '127.0.0.1', () => {
       const address = server.address();
@@ -108,9 +109,169 @@ async function closeElectronApp(app: ElectronApplication, timeoutMs = 5_000): Pr
   }
 }
 
+async function startNewApiMockServer(): Promise<{ baseUrl: string; close: () => Promise<void> }> {
+  let hardLimitUsd = 120.0;
+  const server = createHttpServer((req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+
+    if (req.url === '/v1/models') {
+      res.writeHead(200);
+      res.end(JSON.stringify({
+        object: 'list',
+        data: [
+          { id: 'gpt-4.1-mini', object: 'model', created: 1710000000, owned_by: 'openai' },
+          { id: 'claude-3.7-sonnet', object: 'model', created: 1710000100, owned_by: 'anthropic' },
+        ],
+      }));
+      return;
+    }
+
+    if (req.url === '/api/user/self') {
+      res.writeHead(200);
+      res.end(JSON.stringify({
+        success: true,
+        data: {
+          id: 42,
+          username: 'e2e-user',
+          quota: 120,
+          used_quota: 45,
+          request_count: 19,
+        },
+      }));
+      return;
+    }
+
+    if (req.url?.startsWith('/api/token/')) {
+      if (req.method === 'POST' && req.url === '/api/token/1/key') {
+        res.writeHead(200);
+        res.end(JSON.stringify({
+          success: true,
+          data: {
+            key: 'e2e-inference-key-12345678901234567890123456789012',
+          },
+        }));
+        return;
+      }
+
+      res.writeHead(200);
+      res.end(JSON.stringify({
+        success: true,
+        data: {
+          items: [
+            { id: 1, name: 'default', key: 'e2e-in**************9012', status: 1, remain_quota: 200, unlimited_quota: true, expired_time: -1 },
+          ],
+          total: 1,
+        },
+      }));
+      return;
+    }
+
+    if (req.url === '/dashboard/billing/subscription') {
+      res.writeHead(200);
+      res.end(JSON.stringify({
+        object: 'billing_subscription',
+        hard_limit_usd: hardLimitUsd,
+      }));
+      return;
+    }
+
+    if (req.url === '/dashboard/billing/usage') {
+      res.writeHead(200);
+      res.end(JSON.stringify({
+        object: 'list',
+        total_usage: 4550,
+      }));
+      return;
+    }
+
+    if (req.url?.startsWith('/api/log/self')) {
+      res.writeHead(200);
+      res.end(JSON.stringify({
+        success: true,
+        data: {
+          items: [
+            {
+              id: 11,
+              created_at: 1710002000,
+              model_name: 'gpt-4.1-mini',
+              token_name: 'default',
+              prompt_tokens: 12,
+              completion_tokens: 6,
+              quota: 120,
+            },
+          ],
+        },
+      }));
+      return;
+    }
+
+    if (req.url === '/api/user/topup/info') {
+      res.writeHead(200);
+      res.end(JSON.stringify({
+        success: true,
+        data: {
+          enable_online_topup: true,
+          min_topup: 10,
+          amount_options: [10, 20, 50],
+          pay_methods: [
+            { name: 'Alipay', type: 'alipay', min_topup: 10 },
+          ],
+        },
+      }));
+      return;
+    }
+
+    if (req.url === '/api/user/pay' && req.method === 'POST') {
+      hardLimitUsd = 150.0;
+      res.writeHead(200);
+      res.end(JSON.stringify({
+        message: 'success',
+        data: {
+          pid: '10001',
+          out_trade_no: 'e2e-order-1',
+          sign: 'mock-signature',
+        },
+        url: 'https://pay.example.com/submit',
+      }));
+      return;
+    }
+
+    res.writeHead(404);
+    res.end(JSON.stringify({ error: 'not found' }));
+  });
+
+  const port = await new Promise<number>((resolvePort, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        reject(new Error('Failed to start New API mock server'));
+        return;
+      }
+      resolvePort(address.port);
+    });
+  });
+
+  return {
+    baseUrl: `http://127.0.0.1:${port}`,
+    close: async () => {
+      await new Promise<void>((resolveClose, rejectClose) => {
+        server.close((error) => {
+          if (error) {
+            rejectClose(error);
+            return;
+          }
+          resolveClose();
+        });
+      });
+    },
+  };
+}
+
 async function launchClawXElectron(
   homeDir: string,
   userDataDir: string,
+  newApiBaseUrl: string,
   options: LaunchElectronOptions = {},
 ): Promise<ElectronApplication> {
   const hostApiPort = await allocatePort();
@@ -132,6 +293,7 @@ async function launchClawXElectron(
       CLAWX_USER_DATA_DIR: userDataDir,
       ...(options.skipSetup ? { CLAWX_E2E_SKIP_SETUP: '1' } : {}),
       CLAWX_PORT_CLAWX_HOST_API: String(hostApiPort),
+      CLAWX_NEW_API_BASE_URL: newApiBaseUrl,
     },
     timeout: 90_000,
   });
@@ -160,7 +322,17 @@ export const test = base.extend<ElectronFixtures>({
   },
 
   launchElectronApp: async ({ homeDir, userDataDir }, provideLauncher) => {
-    await provideLauncher(async (options?: LaunchElectronOptions) => await launchClawXElectron(homeDir, userDataDir, options));
+    const newApiMockServer = await startNewApiMockServer();
+    try {
+      await provideLauncher(async (options?: LaunchElectronOptions) => await launchClawXElectron(
+        homeDir,
+        userDataDir,
+        newApiMockServer.baseUrl,
+        options,
+      ));
+    } finally {
+      await newApiMockServer.close().catch(() => {});
+    }
   },
 
   electronApp: async ({ launchElectronApp }, provideElectronApp) => {

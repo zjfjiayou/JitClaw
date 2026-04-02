@@ -10,8 +10,65 @@
     "sinceRestart": "前回の再起動から",
     "gatewayNotRunning": "ゲートウェイが停止中",
     "models": {
-        "title": "モデル",
-        "subtitle": "AI プロバイダーを管理し、トークン使用量を監視します"
+        "title": "使用量",
+        "subtitle": "アクセストークンで接続し、使用量を確認します"
+    },
+    "usage": {
+        "title": "使用量",
+        "subtitle": "システムアクセストークンを入力し、請求額、消費明細、残高を確認します。",
+        "newApi": {
+            "title": "アクセストークン",
+            "description": "システムアクセストークンを保存すると、請求額、消費明細、残高を確認できます。",
+            "configured": "接続済み",
+            "accessToken": "アクセストークン",
+            "accessTokenPlaceholder": "システムアクセストークンを入力",
+            "accessTokenHelp": "New API コンソールの「個人設定 → セキュリティ」で生成できます。モデル呼び出し用の API キーは自動取得されます。",
+            "saved": "アクセストークンを保存しました",
+            "pending": "アクセストークンを入力して接続します。モデル呼び出し用の API キーは自動取得されます。",
+            "noInferenceKey": "利用可能な API トークンが見つかりません。New API コンソールで作成してください。",
+            "inferenceToken": "使用中のトークン: {{name}}",
+            "topup": {
+                "button": "チャージ",
+                "title": "残高チャージ",
+                "description": "金額を入力して支払い方法を選ぶと、JitClaw がブラウザで支払いページを開きます。",
+                "amount": "チャージ金額",
+                "amountPlaceholder": "チャージ金額を入力",
+                "minAmount": "最低チャージ額 {{amount}}",
+                "paymentMethod": "支払い方法",
+                "selectPaymentMethod": "支払い方法を選択してください",
+                "loading": "チャージ設定を読み込み中...",
+                "unavailable": "オンラインチャージは利用できません",
+                "submit": "支払いへ進む",
+                "cancel": "キャンセル",
+                "close": "閉じる",
+                "paymentOpenedTitle": "支払いページを開きました",
+                "paymentOpenedDescription": "ブラウザで支払いを完了してから、ここへ戻って残高を更新してください。",
+                "refresh": "支払い完了後に残高を更新"
+            }
+        },
+        "overview": {
+            "loading": "使用量を読み込み中...",
+            "error": "使用量概要の読み込みに失敗しました",
+            "balanceLabel": "残高",
+            "balance": "${{amount}}",
+            "usedLabel": "消費済み",
+            "used": "${{amount}}",
+            "hardLimitLabel": "上限",
+            "hardLimit": "${{amount}}",
+            "requestsLabel": "リクエスト数",
+            "requests": "{{count}}",
+            "quotaLabel": "クォータ",
+            "quota": "{{amount}}"
+        },
+        "remoteLogs": {
+            "title": "最近の API 呼び出し",
+            "description": "最新の消費ログです。",
+            "account": "アカウント {{user}}",
+            "empty": "最近の API 呼び出し記録はありません",
+            "request": "リクエスト {{id}}",
+            "quota": "消費 {{amount}}",
+            "unknownTime": "時刻不明"
+        }
     },
     "quickActions": {
         "title": "クイックアクション",
@@ -32,8 +89,8 @@
     "enableSome": "スキルを有効にする",
     "more": "+{{count}} 件",
     "recentTokenHistory": {
-        "title": "最近のトークン使用量",
-        "description": "モデル/プロバイダー使用情報を含む、最近のアシスタント応答とツール結果を表示します。",
+        "title": "ローカル Token 履歴",
+        "description": "ローカルの OpenClaw セッション transcript から解析した token 使用量です。リモート口座残高は含みません。",
         "loading": "トークン使用履歴を読み込み中...",
         "empty": "トークン使用履歴はまだありません",
         "groupByModel": "モデル別",

@@ -40,7 +40,7 @@
 
 Whether you're automating workflows, managing AI-powered channels, or connecting to enterprise systems through JitNode skills, JitClaw provides the interface you need to use OpenClaw effectively.
 
-JitClaw comes pre-configured with best-practice model providers and multi-language settings. You can also fine-tune advanced configurations via **Settings → Advanced → Developer Mode**.
+JitClaw ships with a bundled **New API** provider configuration and multi-language settings. The packaged app updates the provider base URL with releases, while each user configures the API key locally. You can also fine-tune advanced configurations via **Settings → Advanced → Developer Mode**.
 
 ---
 ## Screenshot
@@ -80,7 +80,7 @@ Building AI agents shouldn't require mastering the command line. JitClaw was des
 | Complex CLI setup | One-click installation with guided setup wizard |
 | Configuration files | Visual settings with real-time validation |
 | Process management | Automatic gateway lifecycle management |
-| Multiple AI providers | Unified provider configuration panel |
+| Provider endpoint drift | Bundled New API base URL with local API key setup |
 | Skill/plugin installation | Built-in skill marketplace and management |
 
 ### OpenClaw Inside
@@ -113,17 +113,10 @@ Known limitation: WeChat is intentionally excluded from supported cron delivery 
 
 ### 🧩 Extensible Skill System
 Extend your AI agents with pre-built skills. Browse, install, and manage skills through the integrated skill panel—no package managers required.
-JitClaw also pre-bundles full document-processing skills (`pdf`, `xlsx`, `docx`, `pptx`), deploys them automatically to the managed skills directory (default `~/.openclaw/skills`) on startup, and enables them by default on first install. Additional bundled skills (`find-skills`, `self-improving-agent`, `tavily-search`, `brave-web-search`) are also enabled by default; if required API keys are missing, OpenClaw will surface configuration errors in runtime.  
 The Skills page can display skills discovered from multiple OpenClaw sources (managed dir, workspace, and extra skill dirs), and now shows each skill's actual location so you can open the real folder directly.
 
-Environment variables for bundled search skills:
-- `BRAVE_SEARCH_API_KEY` for `brave-web-search`
-- `TAVILY_API_KEY` for `tavily-search` (OAuth may also be supported by upstream skill runtime)
-- `find-skills` and `self-improving-agent` do not require API keys
-
-### 🔐 Secure Provider Integration
-Connect to multiple AI providers (OpenAI, Anthropic, and more) with credentials stored securely in your system's native keychain. OpenAI supports both API key and browser OAuth (Codex subscription) sign-in.
-For **Custom** providers used with OpenAI-compatible gateways, you can set a custom `User-Agent` in **Settings → AI Providers → Edit Provider** for compatibility-sensitive endpoints.
+### 🔐 Secure New API Integration
+JitClaw uses a fixed **New API** provider. Your system access token is stored securely in the system keychain, while model-call API keys are fetched automatically when needed. The bundled config controls the base URL and discovery endpoints, and the **Usage** page shows remote billing, recent API call details, current balance, and an in-app top-up flow for EPay.
 
 ### 🌙 Adaptive Theming
 Light mode, dark mode, or system-synchronized themes. JitClaw adapts to your preferences automatically.
@@ -165,9 +158,9 @@ pnpm dev
 When you launch JitClaw for the first time, the **Setup Wizard** will guide you through:
 
 1. **Language & Region** – Configure your preferred locale
-2. **AI Provider** – Add providers with API keys or OAuth (for providers that support browser/device login)
-3. **Skill Bundles** – Select pre-configured skills for common use cases
-4. **Verification** – Test your configuration before entering the main interface
+2. **Runtime Check** – Verify the packaged OpenClaw runtime and gateway status
+3. **API Key** – Enter the local API key for the bundled New API provider
+4. **Skill Bundles** – Install the pre-configured skills required by the desktop app
 
 The wizard preselects your system language when it is supported, and falls back to English otherwise.
 
@@ -331,7 +324,7 @@ Chain multiple skills together to create sophisticated automation pipelines. Pro
 ```bash
 # Development
 pnpm run init             # Install dependencies + download uv
-pnpm dev                  # Start with hot reload (auto-prepares bundled skills if missing)
+pnpm dev                  # Start with hot reload
 
 # Quality
 pnpm lint                 # Run ESLint
@@ -348,11 +341,13 @@ pnpm run comms:compare    # Compare replay metrics against baseline thresholds
 # Build & Package
 pnpm run build:vite       # Build frontend only
 pnpm build                # Full production build (with packaging assets)
-pnpm package              # Package for current platform (includes bundled preinstalled skills)
+pnpm package              # Package for current platform
 pnpm package:mac          # Package for macOS
 pnpm package:win          # Package for Windows
 pnpm package:linux        # Package for Linux
 ```
+
+Bundled `uv` binaries default to the USTC mirror in mainland China and fall back to GitHub releases if needed. Set `CLAWX_UV_DOWNLOAD_BASE_URL=https://your-oss.example.com/uv/{version}` to override the mirror.
 
 On headless Linux, run Electron tests under a display server such as `xvfb-run -a pnpm run test:e2e`.
 

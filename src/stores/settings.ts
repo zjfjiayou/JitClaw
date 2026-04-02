@@ -4,6 +4,7 @@
  */
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import type {} from 'zustand/middleware/persist';
 import i18n from '@/i18n';
 import { hostApiFetch } from '@/lib/host-api';
 import { resolveSupportedLanguage } from '../../shared/language';
@@ -87,8 +88,20 @@ const defaultSettings = {
   setupComplete: false,
 };
 
+type PersistedSettingKey = keyof typeof defaultSettings;
+
+function persistSettingValue<K extends PersistedSettingKey>(
+  key: K,
+  value: (typeof defaultSettings)[K],
+): void {
+  void hostApiFetch(`/api/settings/${key}`, {
+    method: 'PUT',
+    body: JSON.stringify({ value }),
+  }).catch(() => { });
+}
+
 export const useSettingsStore = create<SettingsState>()(
-  persist(
+  persist<SettingsState>(
     (set) => ({
       ...defaultSettings,
 
@@ -114,48 +127,30 @@ export const useSettingsStore = create<SettingsState>()(
 
       setTheme: (theme) => {
         set({ theme });
-        void hostApiFetch('/api/settings/theme', {
-          method: 'PUT',
-          body: JSON.stringify({ value: theme }),
-        }).catch(() => { });
+        persistSettingValue('theme', theme);
       },
       setLanguage: (language) => {
         const resolvedLanguage = resolveSupportedLanguage(language);
         i18n.changeLanguage(resolvedLanguage);
         set({ language: resolvedLanguage });
-        void hostApiFetch('/api/settings/language', {
-          method: 'PUT',
-          body: JSON.stringify({ value: resolvedLanguage }),
-        }).catch(() => { });
+        persistSettingValue('language', resolvedLanguage);
       },
       setStartMinimized: (startMinimized) => set({ startMinimized }),
       setLaunchAtStartup: (launchAtStartup) => {
         set({ launchAtStartup });
-        void hostApiFetch('/api/settings/launchAtStartup', {
-          method: 'PUT',
-          body: JSON.stringify({ value: launchAtStartup }),
-        }).catch(() => { });
+        persistSettingValue('launchAtStartup', launchAtStartup);
       },
       setTelemetryEnabled: (telemetryEnabled) => {
         set({ telemetryEnabled });
-        void hostApiFetch('/api/settings/telemetryEnabled', {
-          method: 'PUT',
-          body: JSON.stringify({ value: telemetryEnabled }),
-        }).catch(() => { });
+        persistSettingValue('telemetryEnabled', telemetryEnabled);
       },
       setGatewayAutoStart: (gatewayAutoStart) => {
         set({ gatewayAutoStart });
-        void hostApiFetch('/api/settings/gatewayAutoStart', {
-          method: 'PUT',
-          body: JSON.stringify({ value: gatewayAutoStart }),
-        }).catch(() => { });
+        persistSettingValue('gatewayAutoStart', gatewayAutoStart);
       },
       setGatewayPort: (gatewayPort) => {
         set({ gatewayPort });
-        void hostApiFetch('/api/settings/gatewayPort', {
-          method: 'PUT',
-          body: JSON.stringify({ value: gatewayPort }),
-        }).catch(() => { });
+        persistSettingValue('gatewayPort', gatewayPort);
       },
       setProxyEnabled: (proxyEnabled) => set({ proxyEnabled }),
       setProxyServer: (proxyServer) => set({ proxyServer }),
@@ -163,16 +158,22 @@ export const useSettingsStore = create<SettingsState>()(
       setProxyHttpsServer: (proxyHttpsServer) => set({ proxyHttpsServer }),
       setProxyAllServer: (proxyAllServer) => set({ proxyAllServer }),
       setProxyBypassRules: (proxyBypassRules) => set({ proxyBypassRules }),
-      setUpdateChannel: (updateChannel) => set({ updateChannel }),
-      setAutoCheckUpdate: (autoCheckUpdate) => set({ autoCheckUpdate }),
-      setAutoDownloadUpdate: (autoDownloadUpdate) => set({ autoDownloadUpdate }),
+      setUpdateChannel: (updateChannel) => {
+        set({ updateChannel });
+        persistSettingValue('updateChannel', updateChannel);
+      },
+      setAutoCheckUpdate: (autoCheckUpdate) => {
+        set({ autoCheckUpdate });
+        persistSettingValue('autoCheckUpdate', autoCheckUpdate);
+      },
+      setAutoDownloadUpdate: (autoDownloadUpdate) => {
+        set({ autoDownloadUpdate });
+        persistSettingValue('autoDownloadUpdate', autoDownloadUpdate);
+      },
       setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
       setDevModeUnlocked: (devModeUnlocked) => {
         set({ devModeUnlocked });
-        void hostApiFetch('/api/settings/devModeUnlocked', {
-          method: 'PUT',
-          body: JSON.stringify({ value: devModeUnlocked }),
-        }).catch(() => { });
+        persistSettingValue('devModeUnlocked', devModeUnlocked);
       },
       markSetupComplete: () => set({ setupComplete: true }),
       resetSettings: () => set(defaultSettings),

@@ -123,6 +123,75 @@ describe('saveProviderKeyToOpenClaw', () => {
   });
 });
 
+describe('setOpenClawDefaultModelWithOverride', () => {
+  beforeEach(async () => {
+    vi.resetModules();
+    vi.restoreAllMocks();
+    await rm(testHome, { recursive: true, force: true });
+    await rm(testUserData, { recursive: true, force: true });
+  });
+
+  it('preserves existing custom provider models when switching the default model', async () => {
+    await writeOpenClawJson({
+      models: {
+        providers: {
+          'custom-newapi': {
+            baseUrl: 'http://49.235.172.27:3000/v1',
+            api: 'openai-completions',
+            models: [
+              {
+                id: 'gpt-5.3-codex',
+                name: 'gpt-5.3-codex',
+                input: ['text', 'image'],
+              },
+            ],
+          },
+        },
+      },
+      agents: {
+        defaults: {
+          model: {
+            primary: 'custom-newapi/gpt-5.3-codex',
+          },
+        },
+      },
+    });
+
+    const { setOpenClawDefaultModelWithOverride } = await import('@electron/utils/openclaw-auth');
+
+    await setOpenClawDefaultModelWithOverride(
+      'custom-newapi',
+      'custom-newapi/gpt-5',
+      {
+        baseUrl: 'http://49.235.172.27:3000/v1',
+        api: 'openai-completions',
+      },
+    );
+
+    const config = await readOpenClawJson();
+    const provider = (
+      ((config.models as { providers?: Record<string, unknown> }).providers ?? {})['custom-newapi']
+    ) as { models?: Array<Record<string, unknown>> };
+    const commands = (config.commands ?? {}) as Record<string, unknown>;
+
+    expect(provider.models).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'gpt-5.3-codex',
+          name: 'gpt-5.3-codex',
+          input: ['text', 'image'],
+        }),
+        expect.objectContaining({
+          id: 'gpt-5',
+          name: 'gpt-5',
+        }),
+      ]),
+    );
+    expect(commands.restart).toBe(true);
+    expect(commands.mcp).toBe(true);
+  });
+});
+
 describe('removeProviderKeyFromOpenClaw', () => {
   beforeEach(async () => {
     vi.resetModules();
@@ -361,7 +430,10 @@ describe('sanitizeOpenClawConfig', () => {
     const result = JSON.parse(await readFile(configPath, 'utf8')) as Record<string, unknown>;
     // Fresh install should get tools settings enforced
     const tools = result.tools as Record<string, unknown>;
+    const commands = result.commands as Record<string, unknown>;
     expect(tools.profile).toBe('full');
+    expect(commands.restart).toBe(true);
+    expect(commands.mcp).toBe(true);
 
     logSpy.mockRestore();
   });

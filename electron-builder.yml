@@ -3,6 +3,12 @@ productName: JitClaw
 copyright: Copyright © 2026 JitClaw
 compression: maximum
 artifactName: ${productName}-${version}-${os}-${arch}.${ext}
+# Only publish metadata for the current channel. A beta build should not
+# generate alpha update manifests.
+generateUpdatesFilesForAllChannels: false
+publish:
+  - provider: generic
+    url: https://jitupgrade.oss-cn-hangzhou.aliyuncs.com/jitclaw
 
 directories:
   output: release
@@ -26,9 +32,6 @@ extraResources:
   # because electron-builder respects .gitignore which excludes node_modules/)
   - from: build/openclaw/
     to: openclaw/
-  # Pre-bundled third-party skills (full directories, not only SKILL.md)
-  - from: build/preinstalled-skills/
-    to: resources/preinstalled-skills/
   # NOTE: OpenClaw plugin mirrors (dingtalk, etc.) are bundled by the
   # afterPack hook (after-pack.cjs) directly from node_modules, so they
   # don't need an extraResources entry here.

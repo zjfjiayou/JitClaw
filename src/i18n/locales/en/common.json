@@ -9,7 +9,7 @@
         "dashboard": "Dashboard",
         "settings": "Settings",
         "devConsole": "Developer Console",
-        "models": "Models",
+        "models": "Usage",
         "deleteSessionConfirm": "Are you sure you want to delete session \"{{label}}\"?",
         "openClawPage": "OpenClaw Page"
     },

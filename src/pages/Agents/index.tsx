@@ -10,15 +10,20 @@ import { Switch } from '@/components/ui/switch';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { useAgentsStore } from '@/stores/agents';
 import { useGatewayStore } from '@/stores/gateway';
-import { useProviderStore } from '@/stores/providers';
 import { hostApiFetch } from '@/lib/host-api';
 import { subscribeHostEvent } from '@/lib/host-events';
 import { CHANNEL_ICONS, CHANNEL_NAMES, type ChannelType } from '@/types/channel';
 import type { AgentSummary } from '@/types/agent';
-import type { ProviderAccount, ProviderVendorInfo, ProviderWithKeyInfo } from '@/lib/providers';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
+import { getModelIdForProvider, joinModelRef } from '@/lib/model-ref';
 import { cn } from '@/lib/utils';
+import {
+  getNewApiModelCatalogEntry,
+  listNewApiModelOptions,
+  NEW_API_RUNTIME_PROVIDER_KEY,
+  type NewApiModelOption,
+} from '@/lib/new-api-models';
 import telegramIcon from '@/assets/channels/telegram.svg';
 import discordIcon from '@/assets/channels/discord.svg';
 import whatsappIcon from '@/assets/channels/whatsapp.svg';
@@ -45,57 +50,34 @@ interface ChannelGroupItem {
   accounts: ChannelAccountItem[];
 }
 
-interface RuntimeProviderOption {
-  runtimeProviderKey: string;
-  accountId: string;
-  label: string;
-  modelIdPlaceholder?: string;
-  configuredModelId?: string;
+interface AgentCardProps {
+  agent: AgentSummary;
+  channelGroups: ChannelGroupItem[];
+  onOpenSettings: () => void;
+  onDelete: () => void;
 }
 
-function resolveRuntimeProviderKey(account: ProviderAccount): string {
-  if (account.authMode === 'oauth_browser') {
-    if (account.vendorId === 'google') return 'google-gemini-cli';
-    if (account.vendorId === 'openai') return 'openai-codex';
-  }
-
-  if (account.vendorId === 'custom' || account.vendorId === 'ollama') {
-    const suffix = account.id.replace(/-/g, '').slice(0, 8);
-    return `${account.vendorId}-${suffix}`;
-  }
-
-  if (account.vendorId === 'minimax-portal-cn') {
-    return 'minimax-portal';
-  }
-
-  return account.vendorId;
+interface AddAgentDialogProps {
+  onClose: () => void;
+  onCreate: (name: string, options: { inheritWorkspace: boolean }) => Promise<void>;
 }
 
-function splitModelRef(modelRef: string | null | undefined): { providerKey: string; modelId: string } | null {
-  const value = (modelRef || '').trim();
-  if (!value) return null;
-  const separatorIndex = value.indexOf('/');
-  if (separatorIndex <= 0 || separatorIndex >= value.length - 1) return null;
-  return {
-    providerKey: value.slice(0, separatorIndex),
-    modelId: value.slice(separatorIndex + 1),
-  };
+interface AgentSettingsModalProps {
+  agent: AgentSummary;
+  channelGroups: ChannelGroupItem[];
+  onClose: () => void;
 }
 
-function hasConfiguredProviderCredentials(
-  account: ProviderAccount,
-  statusById: Map<string, ProviderWithKeyInfo>,
-): boolean {
-  if (account.authMode === 'oauth_device' || account.authMode === 'oauth_browser' || account.authMode === 'local') {
-    return true;
-  }
-  return statusById.get(account.id)?.hasKey ?? false;
+interface AgentModelModalProps {
+  agent: AgentSummary;
+  onClose: () => void;
 }
+
+const STATIC_NEW_API_MODEL_OPTIONS = listNewApiModelOptions();
 
 export function Agents() {
   const { t } = useTranslation('agents');
   const gatewayStatus = useGatewayStore((state) => state.status);
-  const refreshProviderSnapshot = useProviderStore((state) => state.refreshProviderSnapshot);
   const lastGatewayStateRef = useRef(gatewayStatus.state);
   const {
     agents,
@@ -124,7 +106,7 @@ export function Agents() {
   useEffect(() => {
     let mounted = true;
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    void Promise.all([fetchAgents(), fetchChannelAccounts(), refreshProviderSnapshot()]).finally(() => {
+    void Promise.all([fetchAgents(), fetchChannelAccounts()]).finally(() => {
       if (mounted) {
         setHasCompletedInitialLoad(true);
       }
@@ -132,7 +114,7 @@ export function Agents() {
     return () => {
       mounted = false;
     };
-  }, [fetchAgents, fetchChannelAccounts, refreshProviderSnapshot]);
+  }, [fetchAgents, fetchChannelAccounts]);
 
   useEffect(() => {
     const unsubscribe = subscribeHostEvent('gateway:channel-status', () => {
@@ -291,12 +273,7 @@ function AgentCard({
   channelGroups,
   onOpenSettings,
   onDelete,
-}: {
-  agent: AgentSummary;
-  channelGroups: ChannelGroupItem[];
-  onOpenSettings: () => void;
-  onDelete: () => void;
-}) {
+}: AgentCardProps) {
   const { t } = useTranslation('agents');
   const boundChannelAccounts = channelGroups.flatMap((group) =>
     group.accounts
@@ -316,6 +293,7 @@ function AgentCard({
 
   return (
     <div
+      data-testid={`agent-card-${agent.id}`}
       className={cn(
         'group flex items-start gap-4 p-4 rounded-2xl transition-all text-left border relative overflow-hidden bg-transparent border-transparent hover:bg-black/5 dark:hover:bg-white/5',
         agent.isDefault && 'bg-black/[0.04] dark:bg-white/[0.06]'
@@ -359,6 +337,7 @@ function AgentCard({
               )}
               onClick={onOpenSettings}
               title={t('settings')}
+              data-testid={`agent-settings-button-${agent.id}`}
             >
               <Settings2 className="h-4 w-4" />
             </Button>
@@ -408,10 +387,7 @@ function ChannelLogo({ type }: { type: ChannelType }) {
 function AddAgentDialog({
   onClose,
   onCreate,
-}: {
-  onClose: () => void;
-  onCreate: (name: string, options: { inheritWorkspace: boolean }) => Promise<void>;
-}) {
+}: AddAgentDialogProps) {
   const { t } = useTranslation('agents');
   const [name, setName] = useState('');
   const [inheritWorkspace, setInheritWorkspace] = useState(false);
@@ -496,11 +472,7 @@ function AgentSettingsModal({
   agent,
   channelGroups,
   onClose,
-}: {
-  agent: AgentSummary;
-  channelGroups: ChannelGroupItem[];
-  onClose: () => void;
-}) {
+}: AgentSettingsModalProps) {
   const { t } = useTranslation('agents');
   const { updateAgent, defaultModelRef } = useAgentsStore();
   const [name, setName] = useState(agent.name);
@@ -609,6 +581,7 @@ function AgentSettingsModal({
               <button
                 type="button"
                 onClick={() => setShowModelModal(true)}
+                data-testid="agent-settings-model-button"
                 className="space-y-1 rounded-2xl bg-black/5 dark:bg-white/5 border border-transparent p-4 text-left hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
               >
                 <p className="text-[11px] uppercase tracking-[0.08em] text-muted-foreground/80 font-medium">
@@ -696,87 +669,50 @@ function AgentSettingsModal({
 function AgentModelModal({
   agent,
   onClose,
-}: {
-  agent: AgentSummary;
-  onClose: () => void;
-}) {
+}: AgentModelModalProps) {
   const { t } = useTranslation('agents');
-  const providerAccounts = useProviderStore((state) => state.accounts);
-  const providerStatuses = useProviderStore((state) => state.statuses);
-  const providerVendors = useProviderStore((state) => state.vendors);
-  const providerDefaultAccountId = useProviderStore((state) => state.defaultAccountId);
   const { updateAgentModel, defaultModelRef } = useAgentsStore();
-  const [selectedRuntimeProviderKey, setSelectedRuntimeProviderKey] = useState('');
-  const [modelIdInput, setModelIdInput] = useState('');
+  const [selectedModelId, setSelectedModelId] = useState('');
   const [savingModel, setSavingModel] = useState(false);
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
 
-  const runtimeProviderOptions = useMemo<RuntimeProviderOption[]>(() => {
-    const vendorMap = new Map<string, ProviderVendorInfo>(providerVendors.map((vendor) => [vendor.id, vendor]));
-    const statusById = new Map<string, ProviderWithKeyInfo>(providerStatuses.map((status) => [status.id, status]));
-    const entries = providerAccounts
-      .filter((account) => account.enabled && hasConfiguredProviderCredentials(account, statusById))
-      .sort((left, right) => {
-        if (left.id === providerDefaultAccountId) return -1;
-        if (right.id === providerDefaultAccountId) return 1;
-        return right.updatedAt.localeCompare(left.updatedAt);
-      });
+  const currentModelRef = agent.overrideModelRef || agent.modelRef || defaultModelRef;
+  const resolvedRuntimeProviderKey = NEW_API_RUNTIME_PROVIDER_KEY;
+  const currentModelId = getModelIdForProvider(currentModelRef, resolvedRuntimeProviderKey);
+  const defaultModelId = getModelIdForProvider(defaultModelRef, resolvedRuntimeProviderKey);
+  const normalizedDefaultModelRef = defaultModelId
+    ? joinModelRef(resolvedRuntimeProviderKey, defaultModelId)
+    : '';
 
-    const deduped = new Map<string, RuntimeProviderOption>();
-    for (const account of entries) {
-      const runtimeProviderKey = resolveRuntimeProviderKey(account);
-      if (!runtimeProviderKey || deduped.has(runtimeProviderKey)) continue;
-      const vendor = vendorMap.get(account.vendorId);
-      const label = `${account.label} (${vendor?.name || account.vendorId})`;
-      const configuredModelId = account.model
-        ? (account.model.startsWith(`${runtimeProviderKey}/`)
-          ? account.model.slice(runtimeProviderKey.length + 1)
-          : account.model)
-        : undefined;
+  const modelOptions = useMemo<NewApiModelOption[]>(() => {
+    const options = [...STATIC_NEW_API_MODEL_OPTIONS];
 
-      deduped.set(runtimeProviderKey, {
-        runtimeProviderKey,
-        accountId: account.id,
-        label,
-        modelIdPlaceholder: vendor?.modelIdPlaceholder,
-        configuredModelId,
-      });
+    if (currentModelId && !options.some((option) => option.id === currentModelId)) {
+      options.unshift({ id: currentModelId, name: currentModelId, description: '' });
     }
 
-    return [...deduped.values()];
-  }, [providerAccounts, providerDefaultAccountId, providerStatuses, providerVendors]);
+    return options;
+  }, [currentModelId]);
 
   useEffect(() => {
-    const override = splitModelRef(agent.overrideModelRef);
-    if (override) {
-      setSelectedRuntimeProviderKey(override.providerKey);
-      setModelIdInput(override.modelId);
+    if (currentModelId) {
+      setSelectedModelId(currentModelId);
       return;
     }
 
-    const effective = splitModelRef(agent.modelRef || defaultModelRef);
-    if (effective) {
-      setSelectedRuntimeProviderKey(effective.providerKey);
-      setModelIdInput(effective.modelId);
-      return;
-    }
+    setSelectedModelId(modelOptions[0]?.id || '');
+  }, [currentModelId, modelOptions]);
 
-    setSelectedRuntimeProviderKey(runtimeProviderOptions[0]?.runtimeProviderKey || '');
-    setModelIdInput('');
-  }, [agent.modelRef, agent.overrideModelRef, defaultModelRef, runtimeProviderOptions]);
-
-  const selectedProvider = runtimeProviderOptions.find((option) => option.runtimeProviderKey === selectedRuntimeProviderKey) || null;
-  const trimmedModelId = modelIdInput.trim();
-  const nextModelRef = selectedRuntimeProviderKey && trimmedModelId
-    ? `${selectedRuntimeProviderKey}/${trimmedModelId}`
-    : '';
-  const normalizedDefaultModelRef = (defaultModelRef || '').trim();
+  const normalizedSelectedModelId = selectedModelId.trim();
+  const selectedModel = getNewApiModelCatalogEntry(normalizedSelectedModelId);
+  const nextModelRef = joinModelRef(resolvedRuntimeProviderKey, normalizedSelectedModelId);
   const isUsingDefaultModelInForm = Boolean(normalizedDefaultModelRef) && nextModelRef === normalizedDefaultModelRef;
   const currentOverrideModelRef = (agent.overrideModelRef || '').trim();
   const desiredOverrideModelRef = nextModelRef && nextModelRef !== normalizedDefaultModelRef
     ? nextModelRef
     : null;
   const modelChanged = (desiredOverrideModelRef || '') !== currentOverrideModelRef;
+  const canSaveModel = Boolean(resolvedRuntimeProviderKey) && Boolean(normalizedSelectedModelId) && modelChanged;
 
   const handleRequestClose = () => {
     if (savingModel || modelChanged) {
@@ -787,11 +723,7 @@ function AgentModelModal({
   };
 
   const handleSaveModel = async () => {
-    if (!selectedRuntimeProviderKey) {
-      toast.error(t('toast.agentModelProviderRequired'));
-      return;
-    }
-    if (!trimmedModelId) {
+    if (!normalizedSelectedModelId) {
       toast.error(t('toast.agentModelIdRequired'));
       return;
     }
@@ -814,18 +746,15 @@ function AgentModelModal({
   };
 
   const handleUseDefaultModel = () => {
-    const parsedDefault = splitModelRef(normalizedDefaultModelRef);
-    if (!parsedDefault) {
-      setSelectedRuntimeProviderKey('');
-      setModelIdInput('');
+    if (!defaultModelId) {
+      setSelectedModelId('');
       return;
     }
-    setSelectedRuntimeProviderKey(parsedDefault.providerKey);
-    setModelIdInput(parsedDefault.modelId);
+    setSelectedModelId(defaultModelId);
   };
 
   return (
-    <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4">
+    <div data-testid="agent-model-modal" className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4">
       <Card className="w-full max-w-xl rounded-3xl border-0 shadow-2xl bg-[#f3f1e9] dark:bg-card overflow-hidden">
         <CardHeader className="flex flex-row items-start justify-between pb-2">
           <div>
@@ -847,46 +776,39 @@ function AgentModelModal({
         </CardHeader>
         <CardContent className="space-y-4 p-6 pt-4">
           <div className="space-y-2">
-            <Label htmlFor="agent-model-provider" className="text-[12px] text-foreground/70">{t('settingsDialog.modelProviderLabel')}</Label>
-            <select
-              id="agent-model-provider"
-              value={selectedRuntimeProviderKey}
-              onChange={(event) => {
-                const nextProvider = event.target.value;
-                setSelectedRuntimeProviderKey(nextProvider);
-                if (!modelIdInput.trim()) {
-                  const option = runtimeProviderOptions.find((candidate) => candidate.runtimeProviderKey === nextProvider);
-                  setModelIdInput(option?.configuredModelId || '');
-                }
-              }}
-              className={selectClasses}
-            >
-              <option value="">{t('settingsDialog.modelProviderPlaceholder')}</option>
-              {runtimeProviderOptions.map((option) => (
-                <option key={option.runtimeProviderKey} value={option.runtimeProviderKey}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="space-y-2">
             <Label htmlFor="agent-model-id" className="text-[12px] text-foreground/70">{t('settingsDialog.modelIdLabel')}</Label>
-            <Input
+            <select
+              data-testid="agent-model-select"
               id="agent-model-id"
-              value={modelIdInput}
-              onChange={(event) => setModelIdInput(event.target.value)}
-              placeholder={selectedProvider?.modelIdPlaceholder || selectedProvider?.configuredModelId || t('settingsDialog.modelIdPlaceholder')}
-              className={inputClasses}
-            />
+              value={normalizedSelectedModelId}
+              onChange={(event) => setSelectedModelId(event.target.value)}
+              className={selectClasses}
+              disabled={modelOptions.length === 0}
+            >
+              {modelOptions.length === 0 ? (
+                <option value="">{t('settingsDialog.modelIdPlaceholder')}</option>
+              ) : (
+                modelOptions.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.name}
+                  </option>
+                ))
+              )}
+            </select>
           </div>
           {!!nextModelRef && (
             <p className="text-[12px] font-mono text-foreground/70 break-all">
               {t('settingsDialog.modelPreview')}: {nextModelRef}
             </p>
           )}
-          {runtimeProviderOptions.length === 0 && (
+          {selectedModel?.description && (
+            <p className="text-[12px] text-foreground/60">
+              {selectedModel.description}
+            </p>
+          )}
+          {modelOptions.length === 0 && (
             <p className="text-[12px] text-amber-600 dark:text-amber-400">
-              {t('settingsDialog.modelProviderEmpty')}
+              {t('settingsDialog.modelListEmpty')}
             </p>
           )}
           <div className="flex items-center justify-end gap-2 pt-2">
@@ -907,7 +829,7 @@ function AgentModelModal({
             </Button>
             <Button
               onClick={() => void handleSaveModel()}
-              disabled={savingModel || !selectedRuntimeProviderKey || !trimmedModelId || !modelChanged}
+              disabled={savingModel || !canSaveModel}
               className="h-9 text-[13px] font-medium rounded-full px-4 shadow-none"
             >
               {savingModel ? (

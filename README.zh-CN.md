@@ -40,7 +40,7 @@
 
 无论是自动化工作流、连接通讯软件，还是通过 JitNode Skills 接入企业系统，JitClaw 都能提供高效易用的图形界面，帮助你更顺畅地使用 OpenClaw。
 
-JitClaw 预置了最佳实践的模型供应商配置和多语言设置。当然，你也可以通过 **设置 → 高级 → 开发者模式** 来进行精细的高级配置。
+JitClaw 内置了固定的 **New API** 服务配置和多语言设置。安装包会随版本更新下发 provider 的 Base URL，而每个用户只需要在本地配置自己的 API key。当然，你也可以通过 **设置 → 高级 → 开发者模式** 来进行精细的高级配置。
 
 ---
 
@@ -81,7 +81,7 @@ JitClaw 预置了最佳实践的模型供应商配置和多语言设置。当然
 | 复杂的命令行配置 | 一键安装，配合引导式设置向导 |
 | 手动编辑配置文件 | 可视化设置界面，实时校验 |
 | 进程管理繁琐 | 自动管理网关生命周期 |
-| 多 AI 供应商切换 | 统一的供应商配置面板 |
+| Provider 地址漂移 | 安装包内置 New API Base URL，本地单独配置 API key |
 | 技能/插件安装复杂 | 内置技能市场与管理界面 |
 
 ### 内置 OpenClaw 核心
@@ -114,16 +114,10 @@ JitClaw 现在还内置了腾讯官方个人微信渠道插件，可直接在 Ch
 
 ### 🧩 可扩展技能系统
 通过预构建的技能扩展 AI 智能体的能力。在集成的技能面板中浏览、安装和管理技能——无需包管理器。
-JitClaw 还会内置预装完整的文档处理技能（`pdf`、`xlsx`、`docx`、`pptx`），在启动时自动部署到托管技能目录（默认 `~/.openclaw/skills`），并在首次安装时默认启用。额外预装技能（`find-skills`、`self-improving-agent`、`tavily-search`、`brave-web-search`）也会默认启用；若缺少必需的 API Key，OpenClaw 会在运行时给出配置错误提示。  
 Skills 页面可展示来自多个 OpenClaw 来源的技能（托管目录、workspace、额外技能目录），并显示每个技能的实际路径，便于直接打开真实安装位置。
 
-重点搜索技能所需环境变量：
-- `BRAVE_SEARCH_API_KEY`：用于 `brave-web-search`
-- `TAVILY_API_KEY`：用于 `tavily-search`（上游运行时也可能支持 OAuth）
-
-### 🔐 安全的供应商集成
-连接多个 AI 供应商（OpenAI、Anthropic 等），凭证安全存储在系统原生密钥链中。OpenAI 同时支持 API Key 与浏览器 OAuth（Codex 订阅）登录。
-如果你通过 **自定义（Custom）Provider** 对接 OpenAI-compatible 网关，可以在 **设置 → AI Providers → 编辑 Provider** 中配置自定义 `User-Agent`，以提高兼容性。
+### 🔐 安全的 New API 集成
+JitClaw 使用固定的 **New API** 服务。系统访问令牌会安全存储在系统原生密钥链中，模型调用所需的 API key 会按需自动获取。随包分发的配置负责 Base URL 与接口发现，**用量** 页面会展示远端账单、最近 API 调用详情、当前余额，并提供应用内易支付充值入口。
 
 ### 🌙 自适应主题
 支持浅色模式、深色模式或跟随系统主题。JitClaw 自动适应你的偏好设置。
@@ -165,9 +159,9 @@ pnpm dev
 首次启动 JitClaw 时，**设置向导** 将引导你完成以下步骤：
 
 1. **语言与区域** – 配置你的首选语言和地区
-2. **AI 供应商** – 通过 API 密钥或 OAuth（支持浏览器/设备登录的供应商）添加账号
-3. **技能包** – 选择适用于常见场景的预配置技能
-4. **验证** – 在进入主界面前测试你的配置
+2. **运行环境检查** – 校验内置 OpenClaw 运行时与 Gateway 状态
+3. **API Key** – 为内置的 New API 服务输入本地 API key
+4. **技能包** – 安装桌面应用所需的预配置技能
 
 如果系统语言在支持列表中，向导会默认选中该语言；否则回退到英文。
 
@@ -348,11 +342,13 @@ pnpm run comms:compare    # 将回放指标与基线阈值对比
 # 构建与打包
 pnpm run build:vite       # 仅构建前端
 pnpm build                # 完整生产构建（含打包资源）
-pnpm package              # 为当前平台打包（包含预装技能资源）
+pnpm package              # 为当前平台打包
 pnpm package:mac          # 为 macOS 打包
 pnpm package:win          # 为 Windows 打包
 pnpm package:linux        # 为 Linux 打包
 ```
+
+打包时内置 `uv` 默认优先走国内可用的 USTC 镜像，失败后再回退 GitHub Releases。如需覆盖默认镜像，可设置 `CLAWX_UV_DOWNLOAD_BASE_URL=https://your-oss.example.com/uv/{version}`。
 
 在无头 Linux 环境下，Electron 测试需要显示服务；可使用 `xvfb-run -a pnpm run test:e2e`。
 

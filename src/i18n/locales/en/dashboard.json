@@ -10,8 +10,65 @@
     "sinceRestart": "Since last restart",
     "gatewayNotRunning": "Gateway not running",
     "models": {
-        "title": "Models",
-        "subtitle": "Manage your AI providers and monitor token usage."
+        "title": "Usage",
+        "subtitle": "Connect with your access token and monitor usage."
+    },
+    "usage": {
+        "title": "Usage",
+        "subtitle": "Enter your system access token to view billing, spend, and balance.",
+        "newApi": {
+            "title": "Access Token",
+            "description": "Save your system access token to view billing, spend, and balance.",
+            "configured": "Connected",
+            "accessToken": "Access Token",
+            "accessTokenPlaceholder": "Enter your system access token",
+            "accessTokenHelp": "Found in New API console under Personal Settings → Security. An API key for model calls is fetched automatically.",
+            "saved": "Access token saved",
+            "pending": "Enter your access token to connect. The API key for model calls will be fetched automatically.",
+            "noInferenceKey": "No available API token found. Create one in the New API console.",
+            "inferenceToken": "Active token: {{name}}",
+            "topup": {
+                "button": "Top Up",
+                "title": "Top Up Balance",
+                "description": "Enter an amount and choose a payment method. JitClaw will open the payment page in your browser.",
+                "amount": "Amount",
+                "amountPlaceholder": "Enter amount",
+                "minAmount": "Minimum top up: {{amount}}",
+                "paymentMethod": "Payment Method",
+                "selectPaymentMethod": "Choose a payment method",
+                "loading": "Loading top up options...",
+                "unavailable": "Online top up is not available",
+                "submit": "Continue to Payment",
+                "cancel": "Cancel",
+                "close": "Close",
+                "paymentOpenedTitle": "Payment Page Opened",
+                "paymentOpenedDescription": "Finish the payment in your browser, then come back here to refresh your balance.",
+                "refresh": "I Finished, Refresh Balance"
+            }
+        },
+        "overview": {
+            "loading": "Loading usage...",
+            "error": "Failed to load usage overview",
+            "balanceLabel": "Balance",
+            "balance": "${{amount}}",
+            "usedLabel": "Spent",
+            "used": "${{amount}}",
+            "hardLimitLabel": "Limit",
+            "hardLimit": "${{amount}}",
+            "requestsLabel": "Requests",
+            "requests": "{{count}}",
+            "quotaLabel": "Quota",
+            "quota": "{{amount}}"
+        },
+        "remoteLogs": {
+            "title": "Recent API Calls",
+            "description": "Latest consumption logs.",
+            "account": "Account {{user}}",
+            "empty": "No recent API call records",
+            "request": "Request {{id}}",
+            "quota": "Consumed {{amount}}",
+            "unknownTime": "Unknown time"
+        }
     },
     "quickActions": {
         "title": "Quick Actions",
@@ -32,8 +89,8 @@
     "enableSome": "Enable some skills",
     "more": "+{{count}} more",
     "recentTokenHistory": {
-        "title": "Recent Token Usage",
-        "description": "Recent assistant responses and tool results with model/provider usage data.",
+        "title": "Local Token History",
+        "description": "Token usage parsed from local OpenClaw session transcripts. This does not include remote account balance.",
         "loading": "Loading token usage history...",
         "empty": "No token usage history yet",
         "groupByModel": "By model",

@@ -8,9 +8,8 @@ const subscribeHostEventMock = vi.fn();
 const fetchAgentsMock = vi.fn();
 const updateAgentMock = vi.fn();
 const updateAgentModelMock = vi.fn();
-const refreshProviderSnapshotMock = vi.fn();
 
-const { gatewayState, agentsState, providersState } = vi.hoisted(() => ({
+const { gatewayState, agentsState } = vi.hoisted(() => ({
   gatewayState: {
     status: { state: 'running', port: 18789 },
   },
@@ -19,12 +18,6 @@ const { gatewayState, agentsState, providersState } = vi.hoisted(() => ({
     defaultModelRef: null as string | null,
     loading: false,
     error: null as string | null,
-  },
-  providersState: {
-    accounts: [] as Array<Record<string, unknown>>,
-    statuses: [] as Array<Record<string, unknown>>,
-    vendors: [] as Array<Record<string, unknown>>,
-    defaultAccountId: '' as string,
   },
 }));
 
@@ -49,18 +42,6 @@ vi.mock('@/stores/agents', () => ({
       deleteAgent: vi.fn(),
     };
     return typeof selector === 'function' ? selector(state) : state;
-  },
-}));
-
-vi.mock('@/stores/providers', () => ({
-  useProviderStore: (selector: (state: typeof providersState & {
-    refreshProviderSnapshot: typeof refreshProviderSnapshotMock;
-  }) => unknown) => {
-    const state = {
-      ...providersState,
-      refreshProviderSnapshot: refreshProviderSnapshotMock,
-    };
-    return selector(state);
   },
 }));
 
@@ -92,17 +73,14 @@ describe('Agents page status refresh', () => {
     gatewayState.status = { state: 'running', port: 18789 };
     agentsState.agents = [];
     agentsState.defaultModelRef = null;
-    providersState.accounts = [];
-    providersState.statuses = [];
-    providersState.vendors = [];
-    providersState.defaultAccountId = '';
     fetchAgentsMock.mockResolvedValue(undefined);
     updateAgentMock.mockResolvedValue(undefined);
     updateAgentModelMock.mockResolvedValue(undefined);
-    refreshProviderSnapshotMock.mockResolvedValue(undefined);
-    hostApiFetchMock.mockResolvedValue({
-      success: true,
-      channels: [],
+    hostApiFetchMock.mockImplementation(async () => {
+      return {
+        success: true,
+        channels: [],
+      };
     });
   });
 
@@ -154,7 +132,7 @@ describe('Agents page status refresh', () => {
     });
   });
 
-  it('uses "Use default model" as form fill only and disables it when already default', async () => {
+  it('uses the bundled New API model list for the agent model modal and saves the selected model', async () => {
     agentsState.agents = [
       {
         id: 'main',
@@ -170,24 +148,45 @@ describe('Agents page status refresh', () => {
         channelTypes: [],
       },
     ];
-    agentsState.defaultModelRef = 'openrouter/anthropic/claude-opus-4.6';
-    providersState.accounts = [
+    agentsState.defaultModelRef = 'custom-newapi/gpt-5.4';
+
+    render(<Agents />);
+
+    await waitFor(() => {
+      expect(fetchAgentsMock).toHaveBeenCalledTimes(1);
+    });
+
+    fireEvent.click(screen.getByTitle('settings'));
+    fireEvent.click(screen.getByText('settingsDialog.modelLabel').closest('button') as HTMLButtonElement);
+
+    const modelSelect = await screen.findByTestId('agent-model-select');
+    expect(modelSelect).toHaveValue('gpt-5.4');
+
+    fireEvent.change(modelSelect, { target: { value: 'gpt-5.3-codex' } });
+    fireEvent.click(screen.getByRole('button', { name: 'common:actions.save' }));
+
+    await waitFor(() => {
+      expect(updateAgentModelMock).toHaveBeenCalledWith('main', 'custom-newapi/gpt-5.3-codex');
+    });
+  });
+
+  it('uses "Use default model" as form fill only and disables it when already default', async () => {
+    agentsState.agents = [
       {
-        id: 'openrouter-default',
-        label: 'OpenRouter',
-        vendorId: 'openrouter',
-        authMode: 'api_key',
-        model: 'openrouter/anthropic/claude-opus-4.6',
-        enabled: true,
-        createdAt: '2026-03-24T00:00:00.000Z',
-        updatedAt: '2026-03-24T00:00:00.000Z',
+        id: 'main',
+        name: 'Main',
+        isDefault: true,
+        modelDisplay: 'gpt-5.4',
+        modelRef: 'custom-newapi/gpt-5.4',
+        overrideModelRef: null,
+        inheritedModel: true,
+        workspace: '~/.openclaw/workspace',
+        agentDir: '~/.openclaw/agents/main/agent',
+        mainSessionKey: 'agent:main:desk',
+        channelTypes: [],
       },
     ];
-    providersState.statuses = [{ id: 'openrouter-default', hasKey: true }];
-    providersState.vendors = [
-      { id: 'openrouter', name: 'OpenRouter', modelIdPlaceholder: 'anthropic/claude-opus-4.6' },
-    ];
-    providersState.defaultAccountId = 'openrouter-default';
+    agentsState.defaultModelRef = 'custom-newapi/gpt-5.4';
 
     render(<Agents />);
 
@@ -199,19 +198,19 @@ describe('Agents page status refresh', () => {
     fireEvent.click(screen.getByText('settingsDialog.modelLabel').closest('button') as HTMLButtonElement);
 
     const useDefaultButton = await screen.findByRole('button', { name: 'settingsDialog.useDefaultModel' });
-    const modelIdInput = screen.getByLabelText('settingsDialog.modelIdLabel');
+    const modelSelect = screen.getByTestId('agent-model-select');
     const saveButton = screen.getByRole('button', { name: 'common:actions.save' });
 
     expect(useDefaultButton).toBeDisabled();
 
-    fireEvent.change(modelIdInput, { target: { value: 'anthropic/claude-sonnet-4.5' } });
+    fireEvent.change(modelSelect, { target: { value: 'gpt-5.3-codex' } });
     expect(useDefaultButton).toBeEnabled();
     expect(saveButton).toBeEnabled();
 
     fireEvent.click(useDefaultButton);
 
     expect(updateAgentModelMock).not.toHaveBeenCalled();
-    expect((modelIdInput as HTMLInputElement).value).toBe('anthropic/claude-opus-4.6');
+    expect(modelSelect).toHaveValue('gpt-5.4');
     expect(useDefaultButton).toBeDisabled();
   });
 
@@ -248,7 +247,6 @@ describe('Agents page status refresh', () => {
   it('keeps the blocking spinner during the initial load before any stable snapshot exists', async () => {
     agentsState.loading = true;
     fetchAgentsMock.mockImplementation(() => new Promise(() => {}));
-    refreshProviderSnapshotMock.mockImplementation(() => new Promise(() => {}));
     hostApiFetchMock.mockImplementation(() => new Promise(() => {}));
 
     const { container } = render(<Agents />);

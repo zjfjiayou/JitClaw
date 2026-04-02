@@ -1,0 +1,14 @@
+[
+  {
+    "id": "gpt-5.4",
+    "name": "gpt-5.4",
+    "description": "General-purpose GPT-5 model with native image input support.",
+    "input": ["text", "image"]
+  },
+  {
+    "id": "gpt-5.3-codex",
+    "name": "gpt-5.3-codex",
+    "description": "GPT-5 Codex model tuned for coding workflows with native image input support.",
+    "input": ["text", "image"]
+  }
+]

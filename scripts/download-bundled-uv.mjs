@@ -1,11 +1,12 @@
 #!/usr/bin/env zx
 
 import 'zx/globals';
+import { resolveUvDownloadUrls } from './lib/uv-download.mjs';
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const UV_VERSION = '0.10.0';
-const BASE_URL = `https://github.com/astral-sh/uv/releases/download/${UV_VERSION}`;
 const OUTPUT_BASE = path.join(ROOT_DIR, 'resources', 'bin');
+const DEFAULT_DOWNLOAD_TIMEOUT_MS = 30_000;
 
 // Mapping Node platforms/archs to uv release naming
 const TARGETS = {
@@ -42,6 +43,31 @@ const PLATFORM_GROUPS = {
   'linux': ['linux-x64', 'linux-arm64']
 };
 
+async function downloadArchive(downloadUrls, archivePath, timeoutMs) {
+  const failures = [];
+
+  for (const downloadUrl of downloadUrls) {
+    try {
+      echo`⬇️ Downloading: ${downloadUrl}`;
+      const response = await fetch(downloadUrl, {
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status} ${response.statusText}`);
+      }
+
+      const buffer = await response.arrayBuffer();
+      await fs.writeFile(archivePath, Buffer.from(buffer));
+      return downloadUrl;
+    } catch (error) {
+      failures.push(`${downloadUrl} -> ${error instanceof Error ? error.message : String(error)}`);
+      echo(chalk.yellow(`⚠️ Download failed: ${downloadUrl}`));
+    }
+  }
+
+  throw new Error(`Failed to download uv archive from all candidate sources:\n${failures.map((failure) => `- ${failure}`).join('\n')}`);
+}
+
 async function setupTarget(id) {
   const target = TARGETS[id];
   if (!target) {
@@ -50,25 +76,26 @@ async function setupTarget(id) {
   }
 
   const targetDir = path.join(OUTPUT_BASE, id);
-  const tempDir = path.join(ROOT_DIR, 'temp_uv_extract');
+  const tempDir = path.join(ROOT_DIR, 'temp_uv_extract', id);
+  const stagingDir = path.join(ROOT_DIR, 'temp_uv_stage', id);
   const archivePath = path.join(ROOT_DIR, target.filename);
-  const downloadUrl = `${BASE_URL}/${target.filename}`;
+  const stagedBin = path.join(stagingDir, target.binName);
+  const destBin = path.join(targetDir, target.binName);
+  const downloadUrls = resolveUvDownloadUrls(target.filename, UV_VERSION);
+  const downloadTimeoutMs = Number.parseInt(process.env.CLAWX_UV_DOWNLOAD_TIMEOUT_MS || '', 10) || DEFAULT_DOWNLOAD_TIMEOUT_MS;
 
   echo(chalk.blue`\n📦 Setting up uv for ${id}...`);
 
   // Cleanup & Prep
-  await fs.remove(targetDir);
   await fs.remove(tempDir);
+  await fs.remove(stagingDir);
   await fs.ensureDir(targetDir);
   await fs.ensureDir(tempDir);
+  await fs.ensureDir(stagingDir);
 
   try {
     // Download
-    echo`⬇️ Downloading: ${downloadUrl}`;
-    const response = await fetch(downloadUrl);
-    if (!response.ok) throw new Error(`Failed to download: ${response.statusText}`);
-    const buffer = await response.arrayBuffer();
-    await fs.writeFile(archivePath, Buffer.from(buffer));
+    await downloadArchive(downloadUrls, archivePath, downloadTimeoutMs);
 
     // Extract
     echo`📂 Extracting...`;
@@ -88,15 +115,14 @@ async function setupTarget(id) {
     // uv archives usually contain a folder named after the target
     const folderName = target.filename.replace('.tar.gz', '').replace('.zip', '');
     const sourceBin = path.join(tempDir, folderName, target.binName);
-    const destBin = path.join(targetDir, target.binName);
 
     if (await fs.pathExists(sourceBin)) {
-      await fs.move(sourceBin, destBin, { overwrite: true });
+      await fs.move(sourceBin, stagedBin, { overwrite: true });
     } else {
       echo(chalk.yellow`🔍 Binary not found in expected subfolder, searching...`);
       const files = await glob(`**/${target.binName}`, { cwd: tempDir, absolute: true });
       if (files.length > 0) {
-        await fs.move(files[0], destBin, { overwrite: true });
+        await fs.move(files[0], stagedBin, { overwrite: true });
       } else {
         throw new Error(`Could not find ${target.binName} in extracted files.`);
       }
@@ -104,14 +130,16 @@ async function setupTarget(id) {
 
     // Permission fix
     if (os.platform() !== 'win32') {
-      await fs.chmod(destBin, 0o755);
+      await fs.chmod(stagedBin, 0o755);
     }
 
+    await fs.move(stagedBin, destBin, { overwrite: true });
     echo(chalk.green`✅ Success: ${destBin}`);
   } finally {
     // Cleanup
     await fs.remove(archivePath);
     await fs.remove(tempDir);
+    await fs.remove(stagingDir);
   }
 }
 

@@ -10,7 +10,7 @@ import { logger } from '../utils/logger';
 import { EventEmitter } from 'events';
 import { setQuitting } from './app-state';
 
-const OSS_UPDATE_BASE_URL = 'https://oss.intelli-spectrum.com';
+const OSS_UPDATE_BASE_URL = 'https://jitupgrade.oss-cn-hangzhou.aliyuncs.com/jitclaw';
 type FeedChannel = 'latest' | 'beta' | 'alpha';
 
 export interface UpdateStatus {
@@ -40,10 +40,14 @@ function detectChannel(version: string): FeedChannel {
   return match[1] === 'beta' ? 'beta' : 'alpha';
 }
 
+const CHANNEL_TO_FEED: Record<'stable' | 'beta' | 'dev', FeedChannel> = {
+  stable: 'latest',
+  beta: 'beta',
+  dev: 'alpha',
+};
+
 function resolveFeedChannel(channel: 'stable' | 'beta' | 'dev'): FeedChannel {
-  if (channel === 'stable') return 'latest';
-  if (channel === 'beta') return 'beta';
-  return 'alpha';
+  return CHANNEL_TO_FEED[channel];
 }
 
 export class AppUpdater extends EventEmitter {

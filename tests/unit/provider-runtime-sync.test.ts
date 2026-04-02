@@ -72,10 +72,12 @@ vi.mock('@electron/utils/logger', () => ({
 
 import {
   syncAgentModelOverrideToRuntime,
+  syncAllProviderAuthToRuntime,
   syncDefaultProviderToRuntime,
   syncDeletedProviderApiKeyToRuntime,
   syncDeletedProviderToRuntime,
   syncSavedProviderToRuntime,
+  syncUpdatedProviderToRuntime,
 } from '@electron/services/providers/provider-runtime-sync';
 
 function createProvider(overrides: Partial<ProviderConfig> = {}): ProviderConfig {
@@ -254,6 +256,155 @@ describe('provider-runtime-sync refresh strategy', () => {
         api: 'openai-completions',
         models: [{ id: 'ark-code-latest', name: 'ark-code-latest' }],
       }),
+    );
+  });
+
+  it('syncs saved new-api agents using the agent override model instead of the provider default', async () => {
+    const gateway = createGateway('running');
+    mocks.listAgentsSnapshot.mockResolvedValue({
+      agents: [
+        {
+          id: 'main',
+          modelRef: 'custom-newapi/gpt-5.3-codex',
+        },
+      ],
+    });
+
+    await syncSavedProviderToRuntime(
+      createProvider({
+        id: 'new-api',
+        name: 'New API',
+        type: 'custom',
+        baseUrl: 'http://49.235.172.27:3000/v1',
+        apiProtocol: 'openai-completions',
+        model: 'gpt-5',
+      }),
+      'sk-newapi',
+      gateway as GatewayManager,
+    );
+
+    expect(mocks.updateSingleAgentModelProvider).toHaveBeenCalledWith(
+      'main',
+      'custom-newapi',
+      expect.objectContaining({
+        baseUrl: 'http://49.235.172.27:3000/v1',
+        api: 'openai-completions',
+        apiKey: 'sk-test',
+        models: [
+          expect.objectContaining({
+            id: 'gpt-5.3-codex',
+            name: 'gpt-5.3-codex',
+            input: ['text', 'image'],
+          }),
+        ],
+      }),
+    );
+  });
+
+  it('repairs stale runtime agent model registries during startup auth sync', async () => {
+    mocks.listProviderAccounts.mockResolvedValue([
+      {
+        id: 'new-api',
+        vendorId: 'custom',
+        label: 'New API',
+        authMode: 'api_key',
+        baseUrl: 'http://49.235.172.27:3000/v1',
+        apiProtocol: 'openai-completions',
+        model: 'gpt-5',
+        enabled: true,
+        isDefault: true,
+        createdAt: '2026-04-01T06:18:48.381Z',
+        updatedAt: '2026-04-01T06:18:48.381Z',
+      },
+    ]);
+    mocks.getProviderSecret.mockResolvedValue({
+      type: 'api_key',
+      accountId: 'new-api',
+      apiKey: 'sk-live',
+    });
+    mocks.getAllProviders.mockResolvedValue([
+      createProvider({
+        id: 'new-api',
+        name: 'New API',
+        type: 'custom',
+        baseUrl: 'http://49.235.172.27:3000/v1',
+        apiProtocol: 'openai-completions',
+        model: 'gpt-5',
+      }),
+    ]);
+    mocks.listAgentsSnapshot.mockResolvedValue({
+      agents: [
+        {
+          id: 'main',
+          modelRef: 'custom-newapi/gpt-5.3-codex',
+        },
+      ],
+    });
+
+    await syncAllProviderAuthToRuntime();
+
+    expect(mocks.saveProviderKeyToOpenClaw).toHaveBeenCalledWith('custom-newapi', 'sk-live');
+    expect(mocks.updateSingleAgentModelProvider).toHaveBeenCalledWith(
+      'main',
+      'custom-newapi',
+      expect.objectContaining({
+        baseUrl: 'http://49.235.172.27:3000/v1',
+        api: 'openai-completions',
+        apiKey: 'sk-test',
+        models: [
+          expect.objectContaining({
+            id: 'gpt-5.3-codex',
+            name: 'gpt-5.3-codex',
+            input: ['text', 'image'],
+          }),
+        ],
+      }),
+    );
+  });
+
+  it('syncs provider catalog entries with active agent override models for bundled new-api', async () => {
+    const gateway = createGateway('running');
+    mocks.getDefaultProvider.mockResolvedValue('new-api');
+    mocks.listAgentsSnapshot.mockResolvedValue({
+      agents: [
+        {
+          id: 'main',
+          modelRef: 'custom-newapi/gpt-5.3-codex',
+        },
+      ],
+    });
+
+    await syncUpdatedProviderToRuntime(
+      createProvider({
+        id: 'new-api',
+        name: 'New API',
+        type: 'custom',
+        baseUrl: 'http://49.235.172.27:3000/v1',
+        apiProtocol: 'openai-completions',
+        model: 'gpt-5',
+      }),
+      'sk-newapi',
+      gateway as GatewayManager,
+    );
+
+    expect(mocks.syncProviderConfigToOpenClaw).toHaveBeenCalledWith(
+      'custom-newapi',
+      'gpt-5',
+      expect.objectContaining({
+        baseUrl: 'http://49.235.172.27:3000/v1',
+        api: 'openai-completions',
+      }),
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'gpt-5',
+          name: 'gpt-5',
+        }),
+        expect.objectContaining({
+          id: 'gpt-5.3-codex',
+          name: 'gpt-5.3-codex',
+          input: ['text', 'image'],
+        }),
+      ]),
     );
   });
 });

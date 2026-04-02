@@ -9,8 +9,8 @@
             "description": "Verifying system requirements"
         },
         "provider": {
-            "title": "AI Provider",
-            "description": "Configure your AI service"
+            "title": "Access Token",
+            "description": "Connect to New API with your access token"
         },
         "channel": {
             "title": "Connect a Channel",
@@ -62,7 +62,7 @@
         }
     },
     "provider": {
-        "label": "Model Provider",
+        "label": "Service",
         "selectPlaceholder": "Select a provider...",
         "baseUrl": "Base URL",
         "modelId": "Model ID",
@@ -78,12 +78,15 @@
             "openaiResponses": "OpenAI Responses",
             "anthropic": "Anthropic Compatible"
         },
-        "apiKey": "API Key",
+        "apiKey": "Access Token",
+        "apiKeyPlaceholder": "Enter your system access token",
         "save": "Save",
         "validateSave": "Validate & Save",
-        "valid": "Provider configured successfully",
-        "invalid": "Invalid API key",
-        "storedLocally": "Your API key is stored locally on your machine."
+        "valid": "Access token verified",
+        "noInferenceKey": "Access token saved, but no usable API token found. Please create one in the New API console.",
+        "invalid": "Invalid access token",
+        "storedLocally": "Your access token is stored locally. An API key for model calls is fetched automatically.",
+        "saved": "Access token configured"
     },
     "channel": {
         "title": "Connect a Messaging Channel",
@@ -113,8 +116,8 @@
     },
     "complete": {
         "title": "Setup Complete!",
-        "subtitle": "JitClaw is configured and ready to use. You can now start chatting with your AI assistant.",
-        "provider": "AI Provider",
+        "subtitle": "JitClaw is configured and ready to use. Your access token is in place and you can start chatting now.",
+        "provider": "Service",
         "components": "Components",
         "gateway": "Gateway",
         "running": "Running",

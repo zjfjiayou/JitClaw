@@ -9,8 +9,8 @@
             "description": "验证系统要求"
         },
         "provider": {
-            "title": "AI 提供商",
-            "description": "配置您的 AI 服务"
+            "title": "系统访问令牌",
+            "description": "输入系统访问令牌连接 New API"
         },
         "channel": {
             "title": "连接渠道",
@@ -62,7 +62,7 @@
         }
     },
     "provider": {
-        "label": "模型提供商",
+        "label": "服务",
         "selectPlaceholder": "选择提供商...",
         "baseUrl": "基础 URL",
         "modelId": "模型 ID",
@@ -78,12 +78,15 @@
             "openaiResponses": "OpenAI Responses",
             "anthropic": "Anthropic 兼容"
         },
-        "apiKey": "API 密钥",
+        "apiKey": "系统访问令牌",
+        "apiKeyPlaceholder": "输入您的系统访问令牌",
         "save": "保存",
         "validateSave": "验证并保存",
-        "valid": "提供商配置成功",
-        "invalid": "无效的 API 密钥",
-        "storedLocally": "您的 API 密钥存储在本地机器上。"
+        "valid": "访问令牌验证成功",
+        "noInferenceKey": "访问令牌已保存，但未找到可用的 API 令牌，请在 New API 控制台中创建。",
+        "invalid": "无效的访问令牌",
+        "storedLocally": "访问令牌存储在本地。模型调用所需的 API key 会自动获取。",
+        "saved": "访问令牌已配置"
     },
     "channel": {
         "title": "连接消息渠道",
@@ -113,8 +116,8 @@
     },
     "complete": {
         "title": "设置完成！",
-        "subtitle": "JitClaw 已配置并准备就绪。您现在可以开始与您的 AI 助手聊天了。",
-        "provider": "AI 提供商",
+        "subtitle": "JitClaw 已配置并准备就绪。访问令牌已就位，现在可以开始聊天了。",
+        "provider": "服务",
         "components": "组件",
         "gateway": "网关",
         "running": "运行中",

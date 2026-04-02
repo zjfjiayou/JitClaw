@@ -9,8 +9,8 @@
             "description": "システム要件を確認中"
         },
         "provider": {
-            "title": "AIプロバイダー",
-            "description": "AIサービスを構成"
+            "title": "アクセストークン",
+            "description": "アクセストークンで New API に接続"
         },
         "channel": {
             "title": "チャンネル接続",
@@ -62,7 +62,7 @@
         }
     },
     "provider": {
-        "label": "モデルプロバイダー",
+        "label": "サービス",
         "selectPlaceholder": "プロバイダーを選択...",
         "baseUrl": "ベース URL",
         "modelId": "モデル ID",
@@ -78,12 +78,15 @@
             "openaiResponses": "OpenAI Responses",
             "anthropic": "Anthropic 互換"
         },
-        "apiKey": "API キー",
+        "apiKey": "アクセストークン",
+        "apiKeyPlaceholder": "システムアクセストークンを入力",
         "save": "保存",
         "validateSave": "検証して保存",
-        "valid": "プロバイダーが正常に構成されました",
-        "invalid": "無効な API キー",
-        "storedLocally": "API キーはローカルマシンに保存されます。"
+        "valid": "アクセストークンを検証しました",
+        "noInferenceKey": "アクセストークンは保存されましたが、利用可能な API トークンが見つかりません。New API コンソールで作成してください。",
+        "invalid": "無効なアクセストークン",
+        "storedLocally": "アクセストークンはローカルに保存されます。モデル呼び出し用の API キーは自動取得されます。",
+        "saved": "アクセストークン設定済み"
     },
     "channel": {
         "title": "メッセージングチャンネルを接続",
@@ -113,8 +116,8 @@
     },
     "complete": {
         "title": "セットアップ完了！",
-        "subtitle": "JitClawの構成が完了し、使用準備が整いました。AIアシスタントとのチャットを開始できます。",
-        "provider": "AI プロバイダー",
+        "subtitle": "JitClaw の構成が完了し、アクセストークンも設定されました。すぐにチャットを開始できます。",
+        "provider": "サービス",
         "components": "コンポーネント",
         "gateway": "ゲートウェイ",
         "running": "実行中",

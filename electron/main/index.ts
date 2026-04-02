@@ -11,6 +11,7 @@ import { createTray } from './tray';
 import { createMenu } from './menu';
 
 import { appUpdater, registerUpdateHandlers } from './updater';
+import { applyStartupUpdaterSettings } from './updater-startup';
 import { logger } from '../utils/logger';
 import { warmupNetworkOptimization } from '../utils/uv-env';
 import { initTelemetry } from '../utils/telemetry';
@@ -35,7 +36,7 @@ import {
 import { createSignalQuitHandler } from './signal-quit';
 import { acquireProcessInstanceFileLock } from './process-instance-lock';
 import { getSetting } from '../utils/store';
-import { ensureBuiltinSkillsInstalled, ensurePreinstalledSkillsInstalled } from '../utils/skill-config';
+import { ensureBuiltinSkillsInstalled } from '../utils/skill-config';
 import { ensureAllBundledPluginsInstalled } from '../utils/plugin-install';
 import { startHostApiServer } from '../api/server';
 import { HostEventBus } from '../api/event-bus';
@@ -43,6 +44,7 @@ import { deviceOAuthManager } from '../utils/device-oauth';
 import { browserOAuthManager } from '../utils/browser-oauth';
 import { whatsAppLoginManager } from '../utils/whatsapp-login';
 import { syncAllProviderAuthToRuntime } from '../services/providers/provider-runtime-sync';
+import { syncBundledNewApiProviderToRuntime } from '../api/routes/new-api';
 
 const WINDOWS_APP_USER_MODEL_ID = 'app.jitclaw.desktop';
 const isE2EMode = process.env.CLAWX_E2E === '1';
@@ -343,8 +345,32 @@ async function initialize(): Promise<void> {
   // Register update handlers
   registerUpdateHandlers(appUpdater, window);
 
-  // Note: Auto-check for updates is driven by the renderer (update store init)
-  // so it respects the user's "Auto-check for updates" setting.
+  if (!isE2EMode) {
+    const [autoCheckUpdate, autoDownloadUpdate] = await Promise.all([
+      getSetting('autoCheckUpdate'),
+      getSetting('autoDownloadUpdate'),
+    ]);
+    const startupUpdateSettings = {
+      autoCheckUpdate: Boolean(autoCheckUpdate),
+      autoDownloadUpdate: Boolean(autoDownloadUpdate),
+    };
+
+    appUpdater.setAutoDownload(startupUpdateSettings.autoDownloadUpdate);
+
+    if (app.isPackaged) {
+      applyStartupUpdaterSettings(
+        appUpdater,
+        startupUpdateSettings,
+        {
+          onCheckError: (error) => {
+            logger.warn('[Updater] Startup update check failed:', error);
+          },
+        },
+      );
+    } else if (startupUpdateSettings.autoCheckUpdate) {
+      logger.debug('[Updater] Startup update check skipped because the app is not packaged');
+    }
+  }
 
   // Repair any bootstrap files that only contain ClawX markers (no OpenClaw
   // template content). This fixes a race condition where ensureClawXContext()
@@ -360,15 +386,6 @@ async function initialize(): Promise<void> {
   if (!isE2EMode) {
     void ensureBuiltinSkillsInstalled().catch((error) => {
       logger.warn('Failed to install built-in skills:', error);
-    });
-  }
-
-  // Pre-deploy bundled third-party skills from resources/preinstalled-skills.
-  // This installs full skill directories (not only SKILL.md) in an idempotent,
-  // non-destructive way and never blocks startup.
-  if (!isE2EMode) {
-    void ensurePreinstalledSkillsInstalled().catch((error) => {
-      logger.warn('Failed to install preinstalled skills:', error);
     });
   }
 
@@ -459,6 +476,7 @@ async function initialize(): Promise<void> {
   const gatewayAutoStart = await getSetting('gatewayAutoStart');
   if (!isE2EMode && gatewayAutoStart) {
     try {
+      await syncBundledNewApiProviderToRuntime();
       await syncAllProviderAuthToRuntime();
       logger.debug('Auto-starting Gateway...');
       await gatewayManager.start();
