@@ -1,27 +1,23 @@
 import type { IncomingMessage, ServerResponse } from 'http';
-import { getProviderService } from '../../services/providers/provider-service';
-import { providerAccountToConfig } from '../../services/providers/provider-store';
-import {
-  syncUpdatedProviderToRuntime,
-  syncDeletedProviderApiKeyToRuntime,
-} from '../../services/providers/provider-runtime-sync';
 import {
   getUserSelf,
-  pickBestApiKey,
   getNewApiUsageOverview,
   getNewApiTopupInfo,
   requestNewApiEpay,
 } from '../../services/new-api-service';
-import type { ProviderAccount } from '../../shared/providers/types';
-import { getApiKey, storeApiKey, deleteApiKey, getDefaultProvider } from '../../utils/secure-storage';
+import {
+  clearNewApiInferenceKey,
+  ensureNewApiAccount,
+  refreshNewApiInferenceKey,
+  refreshNewApiInferenceKeySafely,
+} from '../../services/new-api-runtime';
+import { getApiKey, storeApiKey } from '../../utils/secure-storage';
+import { launchExternalPostForm } from '../../utils/external-form-launcher';
 import {
   getNewApiConfig,
   NEW_API_ACCOUNT_ID,
   NEW_API_ACCESS_TOKEN_ID,
-  NEW_API_PROVIDER_LABEL,
-  resolveNewApiRuntimeBaseUrl,
 } from '../../utils/new-api-config';
-import { launchExternalPostForm } from '../../utils/external-form-launcher';
 import {
   listNewApiModelOptions,
   NEW_API_RUNTIME_PROVIDER_KEY,
@@ -30,115 +26,8 @@ import {
 import type { HostApiContext } from '../context';
 import { parseJsonBody, sendJson } from '../route-utils';
 
-// ---------------------------------------------------------------------------
-// Provider account management
-// ---------------------------------------------------------------------------
-
-async function ensureNewApiAccount(modelId?: string): Promise<ProviderAccount> {
-  const providerService = getProviderService();
-  const config = await getNewApiConfig();
-  const runtimeBaseUrl = resolveNewApiRuntimeBaseUrl(config.baseUrl);
-  const existing = await providerService.getAccount(NEW_API_ACCOUNT_ID);
-  const expectedLabel = config.apiLabel || NEW_API_PROVIDER_LABEL;
-
-  if (existing) {
-    const resolvedModelId = resolveNewApiModelId(modelId ?? existing.model);
-    const persistedDefaultProviderId = await getDefaultProvider();
-    const defaultProviderDrift = persistedDefaultProviderId !== NEW_API_ACCOUNT_ID;
-    const needsUpdate =
-      existing.baseUrl !== runtimeBaseUrl ||
-      existing.label !== expectedLabel ||
-      existing.model !== resolvedModelId;
-
-    if (needsUpdate) {
-      await providerService.updateAccount(NEW_API_ACCOUNT_ID, {
-        ...existing,
-        label: expectedLabel,
-        baseUrl: runtimeBaseUrl,
-        model: resolvedModelId,
-        updatedAt: new Date().toISOString(),
-      });
-    }
-
-    if (!existing.isDefault || defaultProviderDrift) {
-      await providerService.setDefaultAccount(NEW_API_ACCOUNT_ID);
-    }
-
-    return needsUpdate || !existing.isDefault || defaultProviderDrift
-      ? (await providerService.getAccount(NEW_API_ACCOUNT_ID)) ?? existing
-      : existing;
-  }
-
-  const now = new Date().toISOString();
-  const newAccount: ProviderAccount = {
-    id: NEW_API_ACCOUNT_ID,
-    vendorId: 'custom',
-    label: expectedLabel,
-    authMode: 'api_key',
-    baseUrl: runtimeBaseUrl,
-    apiProtocol: 'openai-completions',
-    model: resolveNewApiModelId(modelId),
-    enabled: true,
-    isDefault: true,
-    createdAt: now,
-    updatedAt: now,
-  };
-  await providerService.createAccount(newAccount);
-  await providerService.setDefaultAccount(NEW_API_ACCOUNT_ID);
-  return (await providerService.getAccount(NEW_API_ACCOUNT_ID)) ?? newAccount;
-}
-
-// ---------------------------------------------------------------------------
-// Inference key cleanup — removes from storage AND runtime
-// ---------------------------------------------------------------------------
-
-async function clearInferenceKey(): Promise<void> {
-  const account = await ensureNewApiAccount();
-  await deleteApiKey(NEW_API_ACCOUNT_ID);
-  await syncDeletedProviderApiKeyToRuntime(
-    providerAccountToConfig(account),
-    NEW_API_ACCOUNT_ID,
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Inference key refresh
-// ---------------------------------------------------------------------------
-
-async function refreshInferenceKey(
-  ctx?: HostApiContext,
-): Promise<{ apiKey: string; tokenName: string } | null> {
-  const accessToken = await getApiKey(NEW_API_ACCESS_TOKEN_ID);
-  if (!accessToken) return null;
-
-  // pickBestApiKey may throw on network errors — let it propagate so callers
-  // can distinguish "server unreachable" (thrown) from "no tokens" (null).
-  const result = await pickBestApiKey(accessToken);
-  if (!result) {
-    await clearInferenceKey();
-    return null;
-  }
-
-  await syncInferenceKeyToRuntime(result.apiKey, ctx);
-  return result;
-}
-
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-async function syncInferenceKeyToRuntime(
-  apiKey: string,
-  ctx?: HostApiContext,
-): Promise<ProviderAccount> {
-  await storeApiKey(NEW_API_ACCOUNT_ID, apiKey);
-  const account = await ensureNewApiAccount();
-  await syncUpdatedProviderToRuntime(
-    providerAccountToConfig(account),
-    apiKey,
-    ctx?.gatewayManager,
-  );
-  return account;
 }
 
 async function getConfiguredAccessToken(res: ServerResponse): Promise<string | null> {
@@ -162,45 +51,6 @@ function parsePositiveInteger(value: unknown): number | null {
     }
   }
   return null;
-}
-
-async function refreshInferenceKeySafely(
-  ctx?: HostApiContext,
-): Promise<{ apiKey: string; tokenName: string } | null> {
-  try {
-    return await refreshInferenceKey(ctx);
-  } catch {
-    return null;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Startup sync
-// ---------------------------------------------------------------------------
-
-export async function syncBundledNewApiProviderToRuntime(): Promise<void> {
-  const accessToken = await getApiKey(NEW_API_ACCESS_TOKEN_ID);
-  let inferenceKey = await getApiKey(NEW_API_ACCOUNT_ID);
-
-  if (!accessToken && !inferenceKey) return;
-
-  // If we have an access token but no inference key, auto-fetch one
-  if (accessToken && !inferenceKey) {
-    try {
-      const result = await pickBestApiKey(accessToken);
-      if (result) {
-        await storeApiKey(NEW_API_ACCOUNT_ID, result.apiKey);
-        inferenceKey = result.apiKey;
-      }
-    } catch {
-      // Can't reach server at startup or key invalid — will retry later
-    }
-  }
-
-  if (!inferenceKey) return;
-
-  const account = await ensureNewApiAccount();
-  await syncUpdatedProviderToRuntime(providerAccountToConfig(account), inferenceKey);
 }
 
 // ---------------------------------------------------------------------------
@@ -254,9 +104,9 @@ export async function handleNewApiRoutes(
       // Auto-fetch inference key — failures here are partial success (access token is valid)
       let storedNewInferenceKey = false;
       try {
-        const picked = await pickBestApiKey(accessToken);
+        const picked = await refreshNewApiInferenceKey(ctx.gatewayManager);
         if (!picked) {
-          await clearInferenceKey();
+          await clearNewApiInferenceKey();
           sendJson(res, 200, {
             success: true,
             username: user.username,
@@ -266,7 +116,6 @@ export async function handleNewApiRoutes(
         }
 
         storedNewInferenceKey = true;
-        await syncInferenceKeyToRuntime(picked.apiKey, ctx);
 
         sendJson(res, 200, {
           success: true,
@@ -277,7 +126,7 @@ export async function handleNewApiRoutes(
       } catch (error) {
         const changedAccessToken = Boolean(previousAccessToken && previousAccessToken !== accessToken);
         if (changedAccessToken || storedNewInferenceKey) {
-          await clearInferenceKey();
+          await clearNewApiInferenceKey();
         }
 
         sendJson(res, 200, {
@@ -319,12 +168,12 @@ export async function handleNewApiRoutes(
       }
 
       if (!inferenceKey && accessToken) {
-        inferenceKey = (await refreshInferenceKeySafely(ctx))?.apiKey ?? null;
+        inferenceKey = (await refreshNewApiInferenceKeySafely(ctx.gatewayManager))?.apiKey ?? null;
       }
 
       let overview = await getNewApiUsageOverview(accessToken, inferenceKey);
       if (overview.billing === null && accessToken) {
-        const refreshedInferenceKey = (await refreshInferenceKeySafely(ctx))?.apiKey ?? null;
+        const refreshedInferenceKey = (await refreshNewApiInferenceKeySafely(ctx.gatewayManager))?.apiKey ?? null;
         if (refreshedInferenceKey) {
           overview = await getNewApiUsageOverview(accessToken, refreshedInferenceKey);
         }

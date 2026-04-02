@@ -44,7 +44,7 @@ import { deviceOAuthManager } from '../utils/device-oauth';
 import { browserOAuthManager } from '../utils/browser-oauth';
 import { whatsAppLoginManager } from '../utils/whatsapp-login';
 import { syncAllProviderAuthToRuntime } from '../services/providers/provider-runtime-sync';
-import { syncBundledNewApiProviderToRuntime } from '../api/routes/new-api';
+import { syncStoredNewApiCredentialsToRuntime } from '../services/new-api-runtime';
 
 const WINDOWS_APP_USER_MODEL_ID = 'app.jitclaw.desktop';
 const isE2EMode = process.env.CLAWX_E2E === '1';
@@ -477,7 +477,7 @@ async function initialize(): Promise<void> {
   const gatewayAutoStart = await getSetting('gatewayAutoStart');
   if (!isE2EMode && gatewayAutoStart) {
     try {
-      await syncBundledNewApiProviderToRuntime();
+      await syncStoredNewApiCredentialsToRuntime(gatewayManager);
       await syncAllProviderAuthToRuntime();
       logger.debug('Auto-starting Gateway...');
       await gatewayManager.start();
