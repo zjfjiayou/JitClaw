@@ -1,10 +1,11 @@
 import type { IncomingMessage, ServerResponse } from 'http';
-import { dialog, nativeImage } from 'electron';
+import { dialog } from 'electron';
 import crypto from 'node:crypto';
 import { extname, join } from 'node:path';
 import { homedir } from 'node:os';
 import type { HostApiContext } from '../context';
 import { parseJsonBody, sendJson } from '../route-utils';
+import { generateImagePreview } from '../../utils/image-preview';
 
 const EXT_MIME_MAP: Record<string, string> = {
   '.png': 'image/png',
@@ -55,26 +56,6 @@ function mimeToExt(mimeType: string): string {
 
 const OUTBOUND_DIR = join(homedir(), '.openclaw', 'media', 'outbound');
 
-async function generateImagePreview(filePath: string, mimeType: string): Promise<string | null> {
-  try {
-    const img = nativeImage.createFromPath(filePath);
-    if (img.isEmpty()) return null;
-    const size = img.getSize();
-    const maxDim = 512;
-    if (size.width > maxDim || size.height > maxDim) {
-      const resized = size.width >= size.height
-        ? img.resize({ width: maxDim })
-        : img.resize({ height: maxDim });
-      return `data:image/png;base64,${resized.toPNG().toString('base64')}`;
-    }
-    const { readFile } = await import('node:fs/promises');
-    const buf = await readFile(filePath);
-    return `data:${mimeType};base64,${buf.toString('base64')}`;
-  } catch {
-    return null;
-  }
-}
-
 export async function handleFileRoutes(
   req: IncomingMessage,
   res: ServerResponse,
@@ -96,7 +77,7 @@ export async function handleFileRoutes(
         const mimeType = getMimeType(ext);
         const fileName = filePath.split(/[\\/]/).pop() || 'file';
         const preview = mimeType.startsWith('image/')
-          ? await generateImagePreview(stagedPath, mimeType)
+          ? await generateImagePreview(stagedPath)
           : null;
         results.push({ id, fileName, mimeType, fileSize: s.size, stagedPath, preview });
       }
@@ -119,7 +100,7 @@ export async function handleFileRoutes(
       await fsP.writeFile(stagedPath, buffer);
       const mimeType = body.mimeType || getMimeType(ext);
       const preview = mimeType.startsWith('image/')
-        ? await generateImagePreview(stagedPath, mimeType)
+        ? await generateImagePreview(stagedPath)
         : null;
       sendJson(res, 200, {
         id,

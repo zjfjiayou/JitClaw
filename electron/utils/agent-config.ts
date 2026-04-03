@@ -1,4 +1,4 @@
-import { access, copyFile, mkdir, readdir, rm } from 'fs/promises';
+import { access, copyFile, mkdir, readdir, readFile, rm, stat, writeFile } from 'fs/promises';
 import { constants } from 'fs';
 import { join, normalize } from 'path';
 import { deleteAgentChannelAccounts, listConfiguredChannels, readOpenClawConfig, writeOpenClawConfig } from './channel-config';
@@ -24,6 +24,10 @@ const AGENT_RUNTIME_FILES = [
   'auth-profiles.json',
   'models.json',
 ];
+const EDITABLE_AGENT_PROMPT_FILES: Record<AgentPromptFileKey, string> = {
+  agents: 'AGENTS.md',
+  soul: 'SOUL.md',
+};
 
 interface AgentModelConfig {
   primary?: string;
@@ -97,6 +101,29 @@ export interface AgentsSnapshot {
   configuredChannelTypes: string[];
   channelOwners: Record<string, string>;
   channelAccountOwners: Record<string, string>;
+}
+
+export type AgentPromptFileKey = 'agents' | 'soul';
+
+export interface AgentPromptFileSummary {
+  fileKey: AgentPromptFileKey;
+  fileName: string;
+  exists: boolean;
+  editable: boolean;
+}
+
+export interface AgentPromptFilesResult {
+  agentId: string;
+  files: AgentPromptFileSummary[];
+}
+
+export interface AgentPromptFileResult {
+  agentId: string;
+  fileKey: AgentPromptFileKey;
+  fileName: string;
+  exists: boolean;
+  content: string;
+  updatedAt: string | null;
 }
 
 function resolveModelRef(model: unknown): string | null {
@@ -242,6 +269,123 @@ function normalizeMainKey(value: unknown): string {
 function buildAgentMainSessionKey(config: AgentConfigDocument, agentId: string): string {
   return `agent:${normalizeAgentIdForBinding(agentId) || MAIN_AGENT_ID}:${normalizeMainKey(config.session?.mainKey)}`;
 }
+
+function resolvePromptFileName(fileKey: string): string {
+  if (fileKey in EDITABLE_AGENT_PROMPT_FILES) {
+    return EDITABLE_AGENT_PROMPT_FILES[fileKey as AgentPromptFileKey];
+  }
+  throw new Error(`Unsupported prompt file key: ${fileKey}`);
+}
+
+function resolveAgentEntry(config: AgentConfigDocument, agentId: string): AgentListEntry {
+  const { entries } = normalizeAgentsConfig(config);
+  const normalizedAgentId = normalizeAgentIdForBinding(agentId);
+  const entry = entries.find((item) => normalizeAgentIdForBinding(item.id) === normalizedAgentId);
+  if (!entry) {
+    throw new Error(`Agent "${agentId}" not found`);
+  }
+  return entry;
+}
+
+function resolveAgentWorkspacePath(config: AgentConfigDocument, agentId: string): string {
+  const entry = resolveAgentEntry(config, agentId);
+  return expandPath(entry.workspace || (entry.id === MAIN_AGENT_ID ? getDefaultWorkspacePath(config) : `~/.openclaw/workspace-${entry.id}`));
+}
+
+function resolveAgentPromptFilePath(config: AgentConfigDocument, agentId: string, fileKey: string): {
+  fileKey: AgentPromptFileKey;
+  fileName: string;
+  workspacePath: string;
+  filePath: string;
+} {
+  const normalizedFileKey = fileKey.trim().toLowerCase() as AgentPromptFileKey;
+  const fileName = resolvePromptFileName(normalizedFileKey);
+  const workspacePath = resolveAgentWorkspacePath(config, agentId);
+  const normalizedWorkspace = normalize(workspacePath);
+  const filePath = join(workspacePath, fileName);
+  const normalizedFilePath = normalize(filePath);
+  const workspacePrefix = normalizedWorkspace.endsWith('/') || normalizedWorkspace.endsWith('\\')
+    ? normalizedWorkspace
+    : `${normalizedWorkspace}${process.platform === 'win32' ? '\\' : '/'}`;
+
+  if (normalizedFilePath !== normalizedWorkspace && !normalizedFilePath.startsWith(workspacePrefix)) {
+    throw new Error('Resolved prompt file path is outside agent workspace');
+  }
+
+  return {
+    fileKey: normalizedFileKey,
+    fileName,
+    workspacePath,
+    filePath,
+  };
+}
+
+async function readAgentPromptFileFromConfig(config: AgentConfigDocument, agentId: string, fileKey: string): Promise<AgentPromptFileResult> {
+  const resolved = resolveAgentPromptFilePath(config, agentId, fileKey);
+  if (!(await fileExists(resolved.filePath))) {
+    return {
+      agentId,
+      fileKey: resolved.fileKey,
+      fileName: resolved.fileName,
+      exists: false,
+      content: '',
+      updatedAt: null,
+    };
+  }
+
+  const [content, fileStats] = await Promise.all([
+    readFile(resolved.filePath, 'utf8'),
+    stat(resolved.filePath),
+  ]);
+
+  return {
+    agentId,
+    fileKey: resolved.fileKey,
+    fileName: resolved.fileName,
+    exists: true,
+    content,
+    updatedAt: fileStats.mtime.toISOString(),
+  };
+}
+
+export async function listAgentPromptFiles(agentId: string): Promise<AgentPromptFilesResult> {
+  const config = await readOpenClawConfig() as AgentConfigDocument;
+  resolveAgentEntry(config, agentId);
+  const files = await Promise.all(
+    (Object.entries(EDITABLE_AGENT_PROMPT_FILES) as Array<[AgentPromptFileKey, string]>).map(async ([fileKey, fileName]) => {
+      const { filePath } = resolveAgentPromptFilePath(config, agentId, fileKey);
+      return {
+        fileKey,
+        fileName,
+        exists: await fileExists(filePath),
+        editable: true,
+      } satisfies AgentPromptFileSummary;
+    }),
+  );
+
+  return { agentId, files };
+}
+
+export async function getAgentPromptFile(agentId: string, fileKey: string): Promise<AgentPromptFileResult> {
+  const config = await readOpenClawConfig() as AgentConfigDocument;
+  return readAgentPromptFileFromConfig(config, agentId, fileKey);
+}
+
+export async function updateAgentPromptFile(
+  agentId: string,
+  fileKey: string,
+  content: string,
+): Promise<AgentPromptFileResult> {
+  return withConfigLock(async () => {
+    const config = await readOpenClawConfig() as AgentConfigDocument;
+    const resolved = resolveAgentPromptFilePath(config, agentId, fileKey);
+    await ensureDir(resolved.workspacePath);
+    await writeFile(resolved.filePath, content, 'utf8');
+    logger.info('Updated agent prompt file', { agentId, fileKey: resolved.fileKey, fileName: resolved.fileName });
+    return readAgentPromptFileFromConfig(config, agentId, resolved.fileKey);
+  });
+}
+
 
 /**
  * Returns a map of channelType -> agentId from bindings.

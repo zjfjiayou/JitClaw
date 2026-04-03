@@ -18,6 +18,99 @@ import {
 import type { AttachedFileMeta, RawMessage } from './types';
 import type { ChatGet, ChatSet } from './store-api';
 
+function toMs(timestamp: number): number {
+  return timestamp < 1e12 ? timestamp * 1000 : timestamp;
+}
+
+function isEquivalentAssistantMessage(a: RawMessage, b: RawMessage): boolean {
+  if (a.role !== 'assistant' || b.role !== 'assistant') {
+    return false;
+  }
+
+  const aText = getMessageText(a.content).trim();
+  const bText = getMessageText(b.content).trim();
+  if (!aText || !bText || aText !== bText) {
+    return false;
+  }
+
+  if (typeof a.timestamp === 'number' && typeof b.timestamp === 'number') {
+    return Math.abs(toMs(a.timestamp) - toMs(b.timestamp)) < 5_000;
+  }
+
+  return true;
+}
+
+function isAssistantLikeMessage(message: RawMessage | null | undefined): message is RawMessage {
+  if (!message) {
+    return false;
+  }
+  return message.role === 'assistant' || message.role === undefined;
+}
+
+function shouldPreserveStreamingMessage(current: unknown, incoming: unknown): boolean {
+  if (!current || !incoming || typeof incoming !== 'object') {
+    return false;
+  }
+
+  const incomingMessage = incoming as RawMessage;
+  if (isToolResultRole(incomingMessage.role)) {
+    return true;
+  }
+
+  return incomingMessage.content === undefined;
+}
+
+function buildStableSnapshotId(message: RawMessage, runId: string): string {
+  if (message.id) {
+    return message.id;
+  }
+
+  const text = getMessageText(message.content).trim();
+  if (text) {
+    return `run-${runId || 'run'}-assistant-${text}`;
+  }
+
+  if (typeof message.toolCallId === 'string' && message.toolCallId) {
+    return `run-${runId || 'run'}-toolcall-${message.toolCallId}`;
+  }
+
+  if (typeof message.timestamp === 'number') {
+    return `run-${runId || 'run'}-ts-${toMs(message.timestamp)}`;
+  }
+
+  return `run-${runId || 'run'}-assistant-empty`;
+}
+
+function snapshotAssistantMessage(
+  messages: RawMessage[],
+  message: RawMessage | null | undefined,
+  runId: string,
+): RawMessage[] {
+  if (!isAssistantLikeMessage(message)) {
+    return messages;
+  }
+
+  const snapshot: RawMessage = {
+    ...message,
+    role: 'assistant',
+    id: buildStableSnapshotId(message, runId),
+  };
+
+  const alreadyExists = messages.some((existing) => {
+    if (existing.id === snapshot.id) {
+      return true;
+    }
+
+    return isEquivalentAssistantMessage(existing as RawMessage, snapshot);
+  });
+
+  return alreadyExists ? messages : [...messages, snapshot];
+}
+
+function resolveStreamingMessage(current: unknown, incoming: unknown): unknown {
+  return shouldPreserveStreamingMessage(current, incoming) ? current : (incoming ?? current);
+}
+
 export function handleRuntimeEventState(
   set: ChatSet,
   get: ChatGet,
@@ -44,29 +137,7 @@ export function handleRuntimeEventState(
           }
           const updates = collectToolUpdates(event.message, resolvedState);
           set((s) => ({
-            streamingMessage: (() => {
-              if (event.message && typeof event.message === 'object') {
-                const msgRole = (event.message as RawMessage).role;
-                if (isToolResultRole(msgRole)) return s.streamingMessage;
-                // During multi-model fallback the Gateway may emit a delta with an
-                // empty or role-only message (e.g. `{}` or `{ role: 'assistant' }`)
-                // to signal a model switch.  Accepting such a value would silently
-                // discard all content accumulated so far in streamingMessage.
-                // Only replace when the incoming message carries actual payload.
-                const msgObj = event.message as RawMessage;
-                // During multi-model fallback the Gateway may emit an empty or
-                // role-only delta (e.g. `{}` or `{ role: 'assistant' }`) to signal
-                // a model switch.  If we already have accumulated streaming content,
-                // accepting such a message would silently discard it.  Only guard
-                // when there IS existing content to protect; when streamingMessage
-                // is still null, let any delta through so the UI can start showing
-                // the typing indicator immediately.
-                if (s.streamingMessage && msgObj.content === undefined) {
-                  return s.streamingMessage;
-                }
-              }
-              return event.message ?? s.streamingMessage;
-            })(),
+            streamingMessage: resolveStreamingMessage(s.streamingMessage, event.message),
             streamingTools: updates.length > 0 ? upsertToolStatuses(s.streamingTools, updates) : s.streamingTools,
           }));
           break;
@@ -106,45 +177,21 @@ export function handleRuntimeEventState(
                   if (!mediaRefPaths.has(ref.filePath)) toolFiles.push(makeAttachedFile(ref));
                 }
               }
-              set((s) => {
-                // Snapshot the current streaming assistant message (thinking + tool_use) into
-                // messages[] before clearing it. The Gateway does NOT send separate 'final'
-                // events for intermediate tool-use turns — it only sends deltas and then the
-                // tool result. Without snapshotting here, the intermediate thinking+tool steps
-                // would be overwritten by the next turn's deltas and never appear in the UI.
-                const currentStream = s.streamingMessage as RawMessage | null;
-                const snapshotMsgs: RawMessage[] = [];
-                if (currentStream) {
-                  const streamRole = currentStream.role;
-                  if (streamRole === 'assistant' || streamRole === undefined) {
-                    // Use message's own id if available, otherwise derive a stable one from runId
-                    const snapId = currentStream.id
-                      || `${runId || 'run'}-turn-${s.messages.length}`;
-                    if (!s.messages.some(m => m.id === snapId)) {
-                      snapshotMsgs.push({
-                        ...(currentStream as RawMessage),
-                        role: 'assistant',
-                        id: snapId,
-                      });
-                    }
-                  }
-                }
-                return {
-                  messages: snapshotMsgs.length > 0 ? [...s.messages, ...snapshotMsgs] : s.messages,
-                  streamingText: '',
-                  streamingMessage: null,
-                  pendingFinal: true,
-                  pendingToolImages: toolFiles.length > 0
-                    ? [...s.pendingToolImages, ...toolFiles]
-                    : s.pendingToolImages,
-                  streamingTools: updates.length > 0 ? upsertToolStatuses(s.streamingTools, updates) : s.streamingTools,
-                };
-              });
+              set((s) => ({
+                messages: snapshotAssistantMessage(s.messages as RawMessage[], s.streamingMessage as RawMessage | null, runId),
+                streamingText: '',
+                streamingMessage: null,
+                pendingFinal: true,
+                pendingToolImages: toolFiles.length > 0
+                  ? [...s.pendingToolImages, ...toolFiles]
+                  : s.pendingToolImages,
+                streamingTools: updates.length > 0 ? upsertToolStatuses(s.streamingTools, updates) : s.streamingTools,
+              }));
               break;
             }
             const toolOnly = isToolOnlyMessage(finalMsg);
             const hasOutput = hasNonToolAssistantContent(finalMsg);
-            const msgId = finalMsg.id || (toolOnly ? `run-${runId}-tool-${Date.now()}` : `run-${runId}`);
+            const msgId = finalMsg.id || buildStableSnapshotId(finalMsg, runId);
             set((s) => {
               const nextTools = updates.length > 0 ? upsertToolStatuses(s.streamingTools, updates) : s.streamingTools;
               const streamingTools = hasOutput ? [] : nextTools;
@@ -162,7 +209,13 @@ export function handleRuntimeEventState(
               const clearPendingImages = { pendingToolImages: [] as AttachedFileMeta[] };
 
               // Check if message already exists (prevent duplicates)
-              const alreadyExists = s.messages.some(m => m.id === msgId);
+              const alreadyExists = (s.messages as RawMessage[]).some((message) => {
+                if (message.id === msgId) {
+                  return true;
+                }
+
+                return isEquivalentAssistantMessage(message as RawMessage, msgWithImages);
+              });
               if (alreadyExists) {
                 return toolOnly ? {
                   streamingText: '',
@@ -219,15 +272,10 @@ export function handleRuntimeEventState(
           // content ("Let me get that written down...") is preserved in the UI
           // rather than being silently discarded.
           const currentStream = get().streamingMessage as RawMessage | null;
-          if (currentStream && (currentStream.role === 'assistant' || currentStream.role === undefined)) {
-            const snapId = (currentStream as RawMessage).id
-              || `error-snap-${Date.now()}`;
-            const alreadyExists = get().messages.some(m => m.id === snapId);
-            if (!alreadyExists) {
-              set((s) => ({
-                messages: [...s.messages, { ...currentStream, role: 'assistant' as const, id: snapId }],
-              }));
-            }
+          if (isAssistantLikeMessage(currentStream)) {
+            set((s) => ({
+              messages: snapshotAssistantMessage(s.messages as RawMessage[], currentStream, runId),
+            }));
           }
 
           set({
@@ -292,7 +340,7 @@ export function handleRuntimeEventState(
             console.warn(`[handleChatEvent] Unknown event state "${resolvedState}", treating message as streaming delta. Event keys:`, Object.keys(event));
             const updates = collectToolUpdates(event.message, 'delta');
             set((s) => ({
-              streamingMessage: event.message ?? s.streamingMessage,
+              streamingMessage: resolveStreamingMessage(s.streamingMessage, event.message),
               streamingTools: updates.length > 0 ? upsertToolStatuses(s.streamingTools, updates) : s.streamingTools,
             }));
           }

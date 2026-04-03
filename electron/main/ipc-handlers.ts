@@ -61,6 +61,7 @@ import {
 import { validateApiKeyWithProvider } from '../services/providers/provider-validation';
 import { appUpdater } from './updater';
 import { registerHostApiProxyHandlers } from './ipc/host-api-proxy';
+import { generateImagePreview } from '../utils/image-preview';
 import {
   isLaunchAtStartupKey,
   isProxyKey,
@@ -2286,34 +2287,6 @@ function mimeToExt(mimeType: string): string {
 const OUTBOUND_DIR = join(homedir(), '.openclaw', 'media', 'outbound');
 
 /**
- * Generate a preview data URL for image files.
- * Resizes large images while preserving aspect ratio (only constrain the
- * longer side so the image is never squished). The frontend handles
- * square cropping via CSS object-fit: cover.
- */
-async function generateImagePreview(filePath: string, mimeType: string): Promise<string | null> {
-  try {
-    const img = nativeImage.createFromPath(filePath);
-    if (img.isEmpty()) return null;
-    const size = img.getSize();
-    const maxDim = 512; // keep enough resolution for crisp display on Retina
-    // Only resize if larger than threshold — specify ONE dimension to keep ratio
-    if (size.width > maxDim || size.height > maxDim) {
-      const resized = size.width >= size.height
-        ? img.resize({ width: maxDim })   // landscape / square → constrain width
-        : img.resize({ height: maxDim }); // portrait → constrain height
-      return `data:image/png;base64,${resized.toPNG().toString('base64')}`;
-    }
-    // Small image — use original (async read to avoid blocking)
-    const { readFile: readFileAsync } = await import('fs/promises');
-    const buf = await readFileAsync(filePath);
-    return `data:${mimeType};base64,${buf.toString('base64')}`;
-  } catch {
-    return null;
-  }
-}
-
-/**
  * File staging IPC handlers
  * Stage files to ~/.openclaw/media/outbound/ for gateway access
  */
@@ -2337,7 +2310,7 @@ function registerFileHandlers(): void {
       // Generate preview for images
       let preview: string | null = null;
       if (mimeType.startsWith('image/')) {
-        preview = await generateImagePreview(stagedPath, mimeType);
+        preview = await generateImagePreview(stagedPath);
       }
 
       results.push({ id, fileName, mimeType, fileSize: s.size, stagedPath, preview });
@@ -2366,7 +2339,7 @@ function registerFileHandlers(): void {
     // Generate preview for images
     let preview: string | null = null;
     if (mimeType.startsWith('image/')) {
-      preview = await generateImagePreview(stagedPath, mimeType);
+      preview = await generateImagePreview(stagedPath);
     }
 
     return { id, fileName: payload.fileName, mimeType, fileSize, stagedPath, preview };
@@ -2421,7 +2394,7 @@ function registerFileHandlers(): void {
         const s = await fsP.stat(filePath);
         let preview: string | null = null;
         if (mimeType.startsWith('image/')) {
-          preview = await generateImagePreview(filePath, mimeType);
+          preview = await generateImagePreview(filePath);
         }
         results[filePath] = { preview, fileSize: s.size };
       } catch {

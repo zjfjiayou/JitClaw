@@ -30,11 +30,83 @@ interface ChatMessageProps {
 
 interface ExtractedImage { url?: string; data?: string; mimeType: string; }
 
+const thumbnailRequests = new Map<string, Promise<string | null>>();
+
 /** Resolve an ExtractedImage to a displayable src string, or null if not possible. */
 function imageSrc(img: ExtractedImage): string | null {
   if (img.url) return img.url;
   if (img.data) return `data:${img.mimeType};base64,${img.data}`;
   return null;
+}
+
+function ImageAttachment({
+  file,
+  mode,
+  onPreview,
+}: {
+  file: AttachedFileMeta;
+  mode: 'user' | 'assistant';
+  onPreview: (src: string) => void;
+}) {
+  const [src, setSrc] = useState<string | null>(file.preview);
+
+  useEffect(() => {
+    setSrc(file.preview);
+  }, [file.preview]);
+
+  useEffect(() => {
+    if (src || !file.filePath || !file.mimeType.startsWith('image/')) return;
+    let cancelled = false;
+    const requestKey = `${file.filePath}|${file.mimeType}`;
+    let request = thumbnailRequests.get(requestKey);
+    if (!request) {
+      request = invokeIpc<Record<string, { preview: string | null; fileSize: number }>>(
+        'media:getThumbnails',
+        [{ filePath: file.filePath, mimeType: file.mimeType }],
+      )
+        .then((result) => result[file.filePath!]?.preview ?? null)
+        .catch(() => null)
+        .finally(() => {
+          thumbnailRequests.delete(requestKey);
+        });
+      thumbnailRequests.set(requestKey, request);
+    }
+
+    request.then((preview) => {
+      if (!cancelled && preview) {
+        setSrc(preview);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [file.filePath, file.mimeType, src]);
+
+  if (!src) {
+    return (
+      <div className="w-36 h-36 rounded-xl border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 flex items-center justify-center text-muted-foreground">
+        <File className="h-8 w-8" />
+      </div>
+    );
+  }
+
+  return mode === 'user' ? (
+    <ImageThumbnail
+      src={src}
+      fileName={file.fileName}
+      filePath={file.filePath}
+      mimeType={file.mimeType}
+      onPreview={() => onPreview(src)}
+    />
+  ) : (
+    <ImagePreviewCard
+      src={src}
+      fileName={file.fileName}
+      filePath={file.filePath}
+      mimeType={file.mimeType}
+      onPreview={() => onPreview(src)}
+    />
+  );
 }
 
 export const ChatMessage = memo(function ChatMessage({
@@ -128,28 +200,17 @@ export const ChatMessage = memo(function ChatMessage({
           <div className="flex flex-wrap gap-2">
             {attachedFiles.map((file, i) => {
               const isImage = file.mimeType.startsWith('image/');
-              // Skip image attachments if we already have images from content blocks
               if (isImage && images.length > 0) return null;
               if (isImage) {
-                return file.preview ? (
-                  <ImageThumbnail
+                return (
+                  <ImageAttachment
                     key={`local-${i}`}
-                    src={file.preview}
-                    fileName={file.fileName}
-                    filePath={file.filePath}
-                    mimeType={file.mimeType}
-                    onPreview={() => setLightboxImg({ src: file.preview!, fileName: file.fileName, filePath: file.filePath, mimeType: file.mimeType })}
+                    file={file}
+                    mode="user"
+                    onPreview={(src) => setLightboxImg({ src, fileName: file.fileName, filePath: file.filePath, mimeType: file.mimeType })}
                   />
-                ) : (
-                  <div
-                    key={`local-${i}`}
-                    className="w-36 h-36 rounded-xl border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 flex items-center justify-center text-muted-foreground"
-                  >
-                    <File className="h-8 w-8" />
-                  </div>
                 );
               }
-              // Non-image files → file card
               return <FileCard key={`local-${i}`} file={file} />;
             })}
           </div>
@@ -190,23 +251,14 @@ export const ChatMessage = memo(function ChatMessage({
             {attachedFiles.map((file, i) => {
               const isImage = file.mimeType.startsWith('image/');
               if (isImage && images.length > 0) return null;
-              if (isImage && file.preview) {
+              if (isImage) {
                 return (
-                  <ImagePreviewCard
+                  <ImageAttachment
                     key={`local-${i}`}
-                    src={file.preview}
-                    fileName={file.fileName}
-                    filePath={file.filePath}
-                    mimeType={file.mimeType}
-                    onPreview={() => setLightboxImg({ src: file.preview!, fileName: file.fileName, filePath: file.filePath, mimeType: file.mimeType })}
+                    file={file}
+                    mode="assistant"
+                    onPreview={(src) => setLightboxImg({ src, fileName: file.fileName, filePath: file.filePath, mimeType: file.mimeType })}
                   />
-                );
-              }
-              if (isImage && !file.preview) {
-                return (
-                  <div key={`local-${i}`} className="w-36 h-36 rounded-xl border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 flex items-center justify-center text-muted-foreground">
-                    <File className="h-8 w-8" />
-                  </div>
                 );
               }
               return <FileCard key={`local-${i}`} file={file} />;

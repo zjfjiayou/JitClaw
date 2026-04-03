@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Eye, EyeOff, KeyRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -55,6 +55,42 @@ interface NewApiTopupInfo {
   payMethods?: NewApiPayMethod[];
 }
 
+function normalizeTopupPayMethods(value: unknown): NewApiPayMethod[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const seenTypes = new Set<string>();
+
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object') {
+      return [];
+    }
+
+    const type = typeof entry.type === 'string' ? entry.type.trim() : '';
+    const name = typeof entry.name === 'string' ? entry.name.trim() : '';
+
+    if (!type || !name || seenTypes.has(type)) {
+      return [];
+    }
+
+    seenTypes.add(type);
+
+    return [{
+      type,
+      name,
+      color: typeof entry.color === 'string' && entry.color.trim() ? entry.color : undefined,
+      minTopup: isFiniteNumber(entry.minTopup) && entry.minTopup > 0 ? entry.minTopup : undefined,
+    }];
+  });
+}
+
+function getEffectiveMinTopup(info: NewApiTopupInfo | null, selectedMethod: string): number {
+  const payMethods = Array.isArray(info?.payMethods) ? info.payMethods : [];
+  const selectedPayMethod = payMethods.find((method) => method.type === selectedMethod);
+  return selectedPayMethod?.minTopup ?? info?.minTopup ?? 0;
+}
+
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
@@ -67,6 +103,14 @@ function formatAmount(value: number | undefined): string {
   return new Intl.NumberFormat(undefined, {
     maximumFractionDigits: 4,
   }).format(value);
+}
+
+function formatUsdAmountFromQuota(value: number | undefined): string {
+  if (!isFiniteNumber(value)) {
+    return '—';
+  }
+
+  return formatAmount(value / 100);
 }
 
 function formatUnixTimestamp(value: number | undefined): string | null {
@@ -128,8 +172,7 @@ function TopupDialog({
   }
 
   const payMethods = Array.isArray(info?.payMethods) ? info.payMethods : [];
-  const selectedPayMethod = payMethods.find((method) => method.type === selectedMethod);
-  const effectiveMinTopup = selectedPayMethod?.minTopup ?? info?.minTopup ?? 0;
+  const effectiveMinTopup = getEffectiveMinTopup(info, selectedMethod);
   const parsedAmount = Number.parseInt(amount.trim(), 10);
   const canSubmit = (
     !loading
@@ -287,6 +330,7 @@ export function Models() {
   const [topupSubmitting, setTopupSubmitting] = useState(false);
   const [topupRefreshLoading, setTopupRefreshLoading] = useState(false);
   const [topupPaymentOpened, setTopupPaymentOpened] = useState(false);
+  const topupInfoRequestIdRef = useRef(0);
 
   const loadNewApiStatus = useCallback(async (): Promise<NewApiStatus | null> => {
     try {
@@ -336,17 +380,23 @@ export function Models() {
   }, []);
 
   const loadTopupInfo = useCallback(async () => {
+    const requestId = topupInfoRequestIdRef.current + 1;
+    topupInfoRequestIdRef.current = requestId;
     setTopupInfoLoading(true);
     setTopupInfoError(null);
 
     try {
       const info = await hostApiFetch<NewApiTopupInfo>('/api/new-api/topup/info');
-      const normalizedPayMethods = Array.isArray(info?.payMethods) ? info.payMethods : [];
+      if (topupInfoRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      const normalizedPayMethods = normalizeTopupPayMethods(info?.payMethods);
       const normalizedInfo: NewApiTopupInfo = {
         enabled: Boolean(info?.enabled),
-        minTopup: isFiniteNumber(info?.minTopup) ? info.minTopup : 0,
+        minTopup: isFiniteNumber(info?.minTopup) && info.minTopup > 0 ? info.minTopup : 0,
         amountOptions: Array.isArray(info?.amountOptions)
-          ? info.amountOptions.filter((value): value is number => isFiniteNumber(value))
+          ? info.amountOptions.filter((value): value is number => isFiniteNumber(value) && value > 0)
           : [],
         payMethods: normalizedPayMethods,
       };
@@ -366,10 +416,15 @@ export function Models() {
         return '';
       });
     } catch (error) {
+      if (topupInfoRequestIdRef.current !== requestId) {
+        return;
+      }
       setTopupInfo(null);
       setTopupInfoError(error instanceof Error ? error.message : String(error));
     } finally {
-      setTopupInfoLoading(false);
+      if (topupInfoRequestIdRef.current === requestId) {
+        setTopupInfoLoading(false);
+      }
     }
   }, []);
 
@@ -398,11 +453,13 @@ export function Models() {
   };
 
   const handleCloseTopupDialog = () => {
+    topupInfoRequestIdRef.current += 1;
     setTopupDialogOpen(false);
     setTopupPaymentOpened(false);
     setTopupSubmitting(false);
     setTopupRefreshLoading(false);
     setTopupInfoError(null);
+    setTopupInfoLoading(false);
   };
 
   const handleSaveAccessToken = async () => {
@@ -441,7 +498,14 @@ export function Models() {
 
   const handleSubmitTopup = async () => {
     const amount = Number.parseInt(topupAmount.trim(), 10);
-    if (!Number.isInteger(amount) || amount <= 0 || !selectedTopupMethod) {
+    const effectiveMinTopup = getEffectiveMinTopup(topupInfo, selectedTopupMethod);
+    if (
+      !topupInfo?.enabled
+      || !Number.isInteger(amount)
+      || amount <= 0
+      || !selectedTopupMethod
+      || (effectiveMinTopup > 0 && amount < effectiveMinTopup)
+    ) {
       return;
     }
 
@@ -691,7 +755,7 @@ export function Models() {
                               <span>{t('dashboard:recentTokenHistory.output', { value: formatAmount(entry.completionTokens) })}</span>
                             )}
                             {isFiniteNumber(entry.quota) && (
-                              <span>{t('dashboard:usage.remoteLogs.quota', { amount: formatAmount(entry.quota) })}</span>
+                              <span>{t('dashboard:usage.remoteLogs.quota', { amount: formatUsdAmountFromQuota(entry.quota) })}</span>
                             )}
                           </div>
                         </div>

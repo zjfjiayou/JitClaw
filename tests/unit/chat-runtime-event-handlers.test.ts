@@ -172,14 +172,78 @@ describe('chat runtime event handlers', () => {
     expect(h.read().streamingMessage).toEqual({ role: 'assistant' });
   });
 
-  it('delta with actual content replaces streamingMessage', async () => {
+  it('unknown state with role-only message does not overwrite existing streamingMessage', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { handleRuntimeEventState } = await import('@/stores/chat/runtime-event-handlers');
-    const existing = { role: 'assistant', content: [{ type: 'text', text: 'old' }] };
-    const incoming = { role: 'assistant', content: [{ type: 'text', text: 'new' }] };
-    const h = makeHarness({ streamingMessage: existing });
+    const existing = { role: 'assistant', content: [{ type: 'text', text: 'partial' }] };
+    const h = makeHarness({ sending: true, streamingMessage: existing });
 
-    handleRuntimeEventState(h.set as never, h.get as never, { message: incoming }, 'delta', 'run-x');
-    expect(h.read().streamingMessage).toEqual(incoming);
+    handleRuntimeEventState(h.set as never, h.get as never, { message: { role: 'assistant' } }, 'mystery', 'run-x');
+    expect(h.read().streamingMessage).toEqual(existing);
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  it('does not append duplicate tool-result snapshot when equivalent assistant stream already exists without ids', async () => {
+    getMessageText.mockImplementation((content: unknown) => {
+      if (typeof content === 'string') return content;
+      if (Array.isArray(content)) {
+        return content
+          .map((block) => (block && typeof block === 'object' && 'text' in (block as Record<string, unknown>))
+            ? String((block as Record<string, unknown>).text ?? '')
+            : '')
+          .join(' ');
+      }
+      return '';
+    });
+    const { handleRuntimeEventState } = await import('@/stores/chat/runtime-event-handlers');
+    const existing = {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'thinking before tool call' }],
+      timestamp: 1710002000,
+    };
+    const h = makeHarness({
+      messages: [existing],
+      streamingMessage: {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'thinking before tool call' }],
+        timestamp: 1710002001,
+      },
+    });
+
+    handleRuntimeEventState(
+      h.set as never,
+      h.get as never,
+      { message: { role: 'toolresult', toolCallId: 'tool-1', content: [] } },
+      'final',
+      'run-dup-tool',
+    );
+
+    expect(h.read().messages).toHaveLength(1);
+    expect(h.read().messages[0]).toEqual(existing);
+  });
+
+  it('does not append duplicate error snapshot when equivalent assistant stream already exists without ids', async () => {
+    getMessageText.mockImplementation((content: unknown) => typeof content === 'string' ? content : 'partial answer');
+    const { handleRuntimeEventState } = await import('@/stores/chat/runtime-event-handlers');
+    const existing = {
+      role: 'assistant',
+      content: 'partial answer',
+      timestamp: 1710002000,
+    };
+    const h = makeHarness({
+      messages: [existing],
+      streamingMessage: {
+        role: 'assistant',
+        content: 'partial answer',
+        timestamp: 1710002002,
+      },
+    });
+
+    handleRuntimeEventState(h.set as never, h.get as never, { errorMessage: 'boom' }, 'error', 'run-err');
+
+    expect(h.read().messages).toHaveLength(1);
+    expect(h.read().messages[0]).toEqual(existing);
   });
 
   it('clears runtime state on aborted event', async () => {

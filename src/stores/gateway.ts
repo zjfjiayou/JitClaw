@@ -52,10 +52,23 @@ function buildGatewayEventDedupeKey(event: Record<string, unknown>): string | nu
   const sessionKey = event.sessionKey != null ? String(event.sessionKey) : '';
   const seq = event.seq != null ? String(event.seq) : '';
   const state = event.state != null ? String(event.state) : '';
-  if (runId || sessionKey || seq || state) {
-    return [runId, sessionKey, seq, state].join('|');
-  }
+
+  // For final events, include message identity so the same final message
+  // arriving through different channels (notification vs chat-message) with
+  // different seq values still deduplicates correctly.
   const message = event.message;
+  let messageFingerprint = '';
+  if (state === 'final' && message && typeof message === 'object') {
+    const msg = message as Record<string, unknown>;
+    const messageId = msg.id != null ? String(msg.id) : '';
+    const stopReason = String(msg.stopReason ?? msg.stop_reason ?? '');
+    const role = String(msg.role ?? '');
+    messageFingerprint = `|msg:${messageId}|${stopReason}|${role}`;
+  }
+
+  if (runId || sessionKey || seq || state) {
+    return [runId, sessionKey, seq, state].join('|') + messageFingerprint;
+  }
   if (message && typeof message === 'object') {
     const msg = message as Record<string, unknown>;
     const messageId = msg.id != null ? String(msg.id) : '';
@@ -168,16 +181,38 @@ function handleGatewayNotification(notification: { method?: string; params?: Rec
         const matchesCurrentSession = resolvedSessionKey == null || resolvedSessionKey === state.currentSessionKey;
         const matchesActiveRun = runId != null && state.activeRunId != null && String(runId) === state.activeRunId;
 
-        if (matchesCurrentSession || matchesActiveRun) {
-          maybeLoadHistory(state);
-        }
-        if ((matchesCurrentSession || matchesActiveRun) && state.sending) {
+        // If the final event handler already set sending=false, nothing to do.
+        if (!state.sending) return;
+        if (!(matchesCurrentSession || matchesActiveRun)) return;
+
+        // The phase:completed notification often arrives BEFORE the final
+        // chat-message event.  If we loadHistory + set sending=false now,
+        // the loadHistory response will include the final message from the
+        // Gateway, and then the late-arriving final event will append it
+        // again — causing a duplicate.
+        //
+        // When streamingMessage is still present, defer the finalization so
+        // the final event can process normally.  Use a short grace window:
+        // if the final event doesn't arrive in time, finalize as a fallback.
+        const PHASE_COMPLETE_GRACE_MS = 3_000;
+
+        const finalize = () => {
+          const current = useChatStore.getState();
+          // If final event already handled it, bail out.
+          if (!current.sending) return;
+          maybeLoadHistory(current);
           useChatStore.setState({
             sending: false,
             activeRunId: null,
             pendingFinal: false,
             lastUserMessageAt: null,
           });
+        };
+
+        if (state.streamingMessage) {
+          setTimeout(finalize, PHASE_COMPLETE_GRACE_MS);
+        } else {
+          finalize();
         }
       })
       .catch(() => {});

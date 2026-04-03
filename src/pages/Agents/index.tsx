@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, Bot, Check, Plus, RefreshCw, Settings2, Trash2, X } from 'lucide-react';
+import { AlertCircle, Bot, Check, FilePenLine, Plus, RefreshCw, Settings2, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -13,7 +14,7 @@ import { useGatewayStore } from '@/stores/gateway';
 import { hostApiFetch } from '@/lib/host-api';
 import { subscribeHostEvent } from '@/lib/host-events';
 import { CHANNEL_ICONS, CHANNEL_NAMES, type ChannelType } from '@/types/channel';
-import type { AgentSummary } from '@/types/agent';
+import type { AgentSummary, AgentPromptFileKey, AgentPromptFileSummary } from '@/types/agent';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { getModelIdForProvider, joinModelRef } from '@/lib/model-ref';
@@ -72,6 +73,13 @@ interface AgentModelModalProps {
   agent: AgentSummary;
   onClose: () => void;
 }
+
+interface AgentPromptEditorModalProps {
+  agent: AgentSummary;
+  onClose: () => void;
+}
+
+const PROMPT_FILE_ORDER: AgentPromptFileKey[] = ['agents', 'soul'];
 
 const STATIC_NEW_API_MODEL_OPTIONS = listNewApiModelOptions();
 
@@ -478,6 +486,7 @@ function AgentSettingsModal({
   const [name, setName] = useState(agent.name);
   const [savingName, setSavingName] = useState(false);
   const [showModelModal, setShowModelModal] = useState(false);
+  const [showPromptModal, setShowPromptModal] = useState(false);
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
 
   useEffect(() => {
@@ -596,6 +605,23 @@ function AgentSettingsModal({
                 </p>
               </button>
             </div>
+
+            <button
+              type="button"
+              onClick={() => setShowPromptModal(true)}
+              data-testid="agent-settings-prompt-button"
+              className="w-full flex items-center justify-between gap-4 rounded-2xl bg-black/5 dark:bg-white/5 border border-transparent p-4 text-left hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
+            >
+              <div className="min-w-0">
+                <p className="text-[11px] uppercase tracking-[0.08em] text-muted-foreground/80 font-medium">
+                  {t('settingsDialog.promptTitle')}
+                </p>
+                <p className="text-[13.5px] text-foreground mt-1">
+                  {t('settingsDialog.promptDescription')}
+                </p>
+              </div>
+              <FilePenLine className="h-4 w-4 shrink-0 text-muted-foreground" />
+            </button>
           </div>
 
           <div className="space-y-4">
@@ -649,6 +675,12 @@ function AgentSettingsModal({
           onClose={() => setShowModelModal(false)}
         />
       )}
+      {showPromptModal && (
+        <AgentPromptEditorModal
+          agent={agent}
+          onClose={() => setShowPromptModal(false)}
+        />
+      )}
       <ConfirmDialog
         open={showCloseConfirm}
         title={t('settingsDialog.unsavedChangesTitle')}
@@ -661,6 +693,208 @@ function AgentSettingsModal({
           onClose();
         }}
         onCancel={() => setShowCloseConfirm(false)}
+      />
+    </div>
+  );
+}
+
+function AgentPromptEditorModal({
+  agent,
+  onClose,
+}: AgentPromptEditorModalProps) {
+  const { t } = useTranslation('agents');
+  const { getAgentPromptFiles, getAgentPrompt, saveAgentPrompt } = useAgentsStore();
+  const [files, setFiles] = useState<AgentPromptFileSummary[]>([]);
+  const [activeFileKey, setActiveFileKey] = useState<AgentPromptFileKey>('agents');
+  const [content, setContent] = useState('');
+  const [savedContent, setSavedContent] = useState('');
+  const [loadingFiles, setLoadingFiles] = useState(true);
+  const [loadingContent, setLoadingContent] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+  const [pendingFileKey, setPendingFileKey] = useState<AgentPromptFileKey | null>(null);
+
+  const loadPromptFiles = useCallback(async () => {
+    setLoadingFiles(true);
+    try {
+      const response = await getAgentPromptFiles(agent.id);
+      setFiles(response.files);
+      const firstAvailable = PROMPT_FILE_ORDER.find((key) => response.files.some((file) => file.fileKey === key)) || 'agents';
+      setActiveFileKey(firstAvailable);
+    } catch (error) {
+      toast.error(t('toast.agentPromptLoadFailed', { error: String(error) }));
+    } finally {
+      setLoadingFiles(false);
+    }
+  }, [agent.id, getAgentPromptFiles, t]);
+
+  const loadPromptContent = useCallback(async (fileKey: AgentPromptFileKey) => {
+    setLoadingContent(true);
+    try {
+      const response = await getAgentPrompt(agent.id, fileKey);
+      setContent(response.content);
+      setSavedContent(response.content);
+      setFiles((current) => current.map((file) => (
+        file.fileKey === fileKey ? { ...file, exists: response.exists } : file
+      )));
+    } catch (error) {
+      toast.error(t('toast.agentPromptLoadFailed', { error: String(error) }));
+    } finally {
+      setLoadingContent(false);
+    }
+  }, [agent.id, getAgentPrompt, t]);
+
+  useEffect(() => {
+    void loadPromptFiles();
+  }, [loadPromptFiles]);
+
+  useEffect(() => {
+    if (!loadingFiles) {
+      void loadPromptContent(activeFileKey);
+    }
+  }, [activeFileKey, loadPromptContent, loadingFiles]);
+
+  const hasChanges = content !== savedContent;
+
+  const handleRequestClose = () => {
+    if (saving || hasChanges) {
+      setPendingFileKey(null);
+      setShowCloseConfirm(true);
+      return;
+    }
+    onClose();
+  };
+
+  const handleSelectFile = (fileKey: AgentPromptFileKey) => {
+    if (fileKey === activeFileKey) return;
+    if (hasChanges) {
+      setPendingFileKey(fileKey);
+      setShowCloseConfirm(true);
+      return;
+    }
+    setActiveFileKey(fileKey);
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const response = await saveAgentPrompt(agent.id, activeFileKey, content);
+      setSavedContent(response.content);
+      setContent(response.content);
+      setFiles((current) => current.map((file) => (
+        file.fileKey === activeFileKey ? { ...file, exists: response.exists } : file
+      )));
+      toast.success(t('toast.agentPromptSaved'));
+      onClose();
+    } catch (error) {
+      toast.error(t('toast.agentPromptSaveFailed', { error: String(error) }));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div data-testid="agent-prompt-modal" className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4">
+      <Card className="w-full max-w-3xl max-h-[90vh] flex flex-col rounded-3xl border-0 shadow-2xl bg-[#f3f1e9] dark:bg-card overflow-hidden">
+        <CardHeader className="flex flex-row items-start justify-between pb-2 shrink-0">
+          <div>
+            <CardTitle className="text-2xl font-serif font-normal tracking-tight">
+              {t('settingsDialog.promptTitle')}
+            </CardTitle>
+            <CardDescription className="text-[15px] mt-1 text-foreground/70">
+              {t('settingsDialog.promptEditorDescription', { name: agent.name })}
+            </CardDescription>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleRequestClose}
+            className="rounded-full h-8 w-8 -mr-2 -mt-2 text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </CardHeader>
+        <CardContent className="p-6 pt-4 pb-24 flex-1 min-h-0 overflow-hidden">
+          <div className="space-y-4 h-full overflow-y-auto mr-1">
+          <div className="flex flex-wrap gap-2">
+            {PROMPT_FILE_ORDER.map((fileKey) => {
+              const file = files.find((item) => item.fileKey === fileKey);
+              return (
+                <Button
+                  key={fileKey}
+                  variant={fileKey === activeFileKey ? 'default' : 'outline'}
+                  onClick={() => handleSelectFile(fileKey)}
+                  disabled={loadingFiles || saving || !file}
+                  className="h-9 text-[13px] font-medium rounded-full px-4"
+                >
+                  {file?.fileName || fileKey}
+                </Button>
+              );
+            })}
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="agent-prompt-editor" className={labelClasses}>{t('settingsDialog.promptContentLabel')}</Label>
+            <Textarea
+              id="agent-prompt-editor"
+              value={content}
+              onChange={(event) => setContent(event.target.value)}
+              disabled={loadingFiles || loadingContent || saving}
+              className="h-[435px] resize-none rounded-2xl font-mono text-[13px] bg-[#eeece3] dark:bg-muted border-black/10 dark:border-white/10 focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:border-blue-500 shadow-sm transition-all text-foreground placeholder:text-foreground/40"
+              placeholder={t('settingsDialog.promptPlaceholder')}
+            />
+          </div>
+
+          <div className="h-6 shrink-0" aria-hidden="true" />
+
+          {(loadingFiles || loadingContent) && (
+            <p className="text-[13px] text-foreground/60">{t('settingsDialog.promptLoading')}</p>
+          )}
+          </div>
+        </CardContent>
+        <div className="shrink-0 border-t border-black/10 dark:border-white/10 bg-[#f3f1e9] dark:bg-card px-6 py-4">
+          <div className="flex items-center justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={handleRequestClose}
+              className="h-9 text-[13px] font-medium rounded-full px-4 border-black/10 dark:border-white/10 bg-transparent hover:bg-black/5 dark:hover:bg-white/5 shadow-none text-foreground/80 hover:text-foreground"
+            >
+              {t('common:actions.cancel')}
+            </Button>
+            <Button
+              onClick={() => void handleSave()}
+              disabled={saving || loadingFiles || loadingContent || !hasChanges}
+              className="h-9 text-[13px] font-medium rounded-full px-4 shadow-none"
+            >
+              {saving ? (
+                <RefreshCw className="h-4 w-4 animate-spin" />
+              ) : (
+                t('common:actions.save')
+              )}
+            </Button>
+          </div>
+        </div>
+      </Card>
+      <ConfirmDialog
+        open={showCloseConfirm}
+        title={t('settingsDialog.unsavedChangesTitle')}
+        message={t('settingsDialog.unsavedChangesMessage')}
+        confirmLabel={t('settingsDialog.closeWithoutSaving')}
+        cancelLabel={t('common:actions.cancel')}
+        onConfirm={() => {
+          setShowCloseConfirm(false);
+          setContent(savedContent);
+          if (pendingFileKey) {
+            setActiveFileKey(pendingFileKey);
+            setPendingFileKey(null);
+            return;
+          }
+          onClose();
+        }}
+        onCancel={() => {
+          setPendingFileKey(null);
+          setShowCloseConfirm(false);
+        }}
       />
     </div>
   );

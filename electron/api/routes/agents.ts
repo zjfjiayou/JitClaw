@@ -4,11 +4,14 @@ import {
   clearChannelBinding,
   createAgent,
   deleteAgentConfig,
+  getAgentPromptFile,
+  listAgentPromptFiles,
   listAgentsSnapshot,
   removeAgentWorkspaceDirectory,
   resolveAccountIdForAgent,
   updateAgentModel,
   updateAgentName,
+  updateAgentPromptFile,
 } from '../../utils/agent-config';
 import { deleteChannelAccountConfig } from '../../utils/channel-config';
 import { syncAgentModelOverrideToRuntime, syncAllProviderAuthToRuntime } from '../../services/providers/provider-runtime-sync';
@@ -133,6 +136,48 @@ export async function handleAgentRoutes(
       sendJson(res, 500, { success: false, error: String(error) });
     }
     return true;
+  }
+
+  if (url.pathname.startsWith('/api/agents/')) {
+    const suffix = url.pathname.slice('/api/agents/'.length);
+    const parts = suffix.split('/').filter(Boolean);
+
+    if (req.method === 'GET' && parts.length === 2 && parts[1] === 'prompts') {
+      try {
+        const agentId = decodeURIComponent(parts[0]);
+        const result = await listAgentPromptFiles(agentId);
+        sendJson(res, 200, { success: true, ...result });
+      } catch (error) {
+        sendJson(res, 500, { success: false, error: String(error) });
+      }
+      return true;
+    }
+
+    if (req.method === 'GET' && parts.length === 3 && parts[1] === 'prompts') {
+      try {
+        const agentId = decodeURIComponent(parts[0]);
+        const fileKey = decodeURIComponent(parts[2]);
+        const result = await getAgentPromptFile(agentId, fileKey);
+        sendJson(res, 200, { success: true, ...result });
+      } catch (error) {
+        sendJson(res, 500, { success: false, error: String(error) });
+      }
+      return true;
+    }
+
+    if (req.method === 'PUT' && parts.length === 3 && parts[1] === 'prompts') {
+      try {
+        const body = await parseJsonBody<{ content?: string }>(req);
+        const agentId = decodeURIComponent(parts[0]);
+        const fileKey = decodeURIComponent(parts[2]);
+        const result = await updateAgentPromptFile(agentId, fileKey, typeof body.content === 'string' ? body.content : '');
+        scheduleGatewayReload(ctx, 'update-agent-prompt');
+        sendJson(res, 200, { success: true, ...result });
+      } catch (error) {
+        sendJson(res, 500, { success: false, error: String(error) });
+      }
+      return true;
+    }
   }
 
   if (url.pathname.startsWith('/api/agents/') && req.method === 'PUT') {

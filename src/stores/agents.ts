@@ -1,7 +1,13 @@
 import { create } from 'zustand';
 import { hostApiFetch } from '@/lib/host-api';
 import type { ChannelType } from '@/types/channel';
-import type { AgentSummary, AgentsSnapshot } from '@/types/agent';
+import type {
+  AgentSummary,
+  AgentsSnapshot,
+  AgentPromptFilesResponse,
+  AgentPromptFileResponse,
+  AgentPromptFileKey,
+} from '@/types/agent';
 
 interface AgentsState {
   agents: AgentSummary[];
@@ -16,6 +22,9 @@ interface AgentsState {
   createAgent: (name: string, options?: { inheritWorkspace?: boolean }) => Promise<void>;
   updateAgent: (agentId: string, name: string) => Promise<void>;
   updateAgentModel: (agentId: string, modelRef: string | null) => Promise<void>;
+  getAgentPromptFiles: (agentId: string) => Promise<AgentPromptFilesResponse>;
+  getAgentPrompt: (agentId: string, fileKey: AgentPromptFileKey) => Promise<AgentPromptFileResponse>;
+  saveAgentPrompt: (agentId: string, fileKey: AgentPromptFileKey, content: string) => Promise<AgentPromptFileResponse>;
   deleteAgent: (agentId: string) => Promise<void>;
   assignChannel: (agentId: string, channelType: ChannelType) => Promise<void>;
   removeChannel: (agentId: string, channelType: ChannelType) => Promise<void>;
@@ -98,6 +107,46 @@ export const useAgentsStore = create<AgentsState>((set) => ({
         }
       );
       set(applySnapshot(snapshot));
+    } catch (error) {
+      set({ error: String(error) });
+      throw error;
+    }
+  },
+
+  getAgentPromptFiles: async (agentId: string) => {
+    set({ error: null });
+    try {
+      return await hostApiFetch<AgentPromptFilesResponse & { success?: boolean }>(
+        `/api/agents/${encodeURIComponent(agentId)}/prompts`,
+      );
+    } catch (error) {
+      set({ error: String(error) });
+      throw error;
+    }
+  },
+
+  getAgentPrompt: async (agentId: string, fileKey: AgentPromptFileKey) => {
+    set({ error: null });
+    try {
+      return await hostApiFetch<AgentPromptFileResponse & { success?: boolean }>(
+        `/api/agents/${encodeURIComponent(agentId)}/prompts/${encodeURIComponent(fileKey)}`,
+      );
+    } catch (error) {
+      set({ error: String(error) });
+      throw error;
+    }
+  },
+
+  saveAgentPrompt: async (agentId: string, fileKey: AgentPromptFileKey, content: string) => {
+    set({ error: null });
+    try {
+      return await hostApiFetch<AgentPromptFileResponse & { success?: boolean }>(
+        `/api/agents/${encodeURIComponent(agentId)}/prompts/${encodeURIComponent(fileKey)}`,
+        {
+          method: 'PUT',
+          body: JSON.stringify({ content }),
+        },
+      );
     } catch (error) {
       set({ error: String(error) });
       throw error;
