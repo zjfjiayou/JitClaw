@@ -465,6 +465,65 @@ describe('sanitizeOpenClawConfig', () => {
 
     logSpy.mockRestore();
   });
+  it('mirrors telegram default account credentials to top level during sanitize', async () => {
+    await writeOpenClawJson({
+      channels: {
+        telegram: {
+          enabled: true,
+          defaultAccount: 'default',
+          accounts: {
+            default: {
+              botToken: 'telegram-token',
+              enabled: true,
+            },
+          },
+          proxy: 'socks5://127.0.0.1:7891',
+        },
+      },
+    });
+
+    const { sanitizeOpenClawConfig } = await import('@electron/utils/openclaw-auth');
+    await sanitizeOpenClawConfig();
+
+    const result = await readOpenClawJson();
+    const channels = result.channels as Record<string, Record<string, unknown>>;
+    const telegram = channels.telegram;
+    expect(telegram.proxy).toBe('socks5://127.0.0.1:7891');
+    expect(telegram.botToken).toBe('telegram-token');
+  });
+
+  it('strips accounts/defaultAccount from dingtalk (strict-schema channel) during sanitize', async () => {
+    await writeOpenClawJson({
+      channels: {
+        dingtalk: {
+          enabled: true,
+          defaultAccount: 'default',
+          accounts: {
+            default: {
+              clientId: 'dt-client-id-nested',
+              clientSecret: 'dt-secret-nested',
+              enabled: true,
+            },
+          },
+          clientId: 'dt-client-id',
+          clientSecret: 'dt-secret',
+        },
+      },
+    });
+
+    const { sanitizeOpenClawConfig } = await import('@electron/utils/openclaw-auth');
+    await sanitizeOpenClawConfig();
+
+    const result = await readOpenClawJson();
+    const channels = result.channels as Record<string, Record<string, unknown>>;
+    const dingtalk = channels.dingtalk;
+    expect(dingtalk.enabled).toBe(true);
+    expect(dingtalk.accounts).toBeUndefined();
+    expect(dingtalk.defaultAccount).toBeUndefined();
+    expect(dingtalk.clientId).toBe('dt-client-id');
+    expect(dingtalk.clientSecret).toBe('dt-secret');
+  });
+});
 });
 
 describe('auth-backed provider discovery', () => {
