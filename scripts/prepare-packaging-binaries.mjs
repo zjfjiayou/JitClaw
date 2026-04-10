@@ -10,12 +10,15 @@ import {
 const DOWNLOAD_COMMANDS = {
   mac: [
     ['zx', 'scripts/download-bundled-uv.mjs', '--platform=mac'],
+    ['zx', 'scripts/download-bundled-jit.mjs', '--platform=mac'],
   ],
   linux: [
     ['zx', 'scripts/download-bundled-uv.mjs', '--platform=linux'],
+    ['zx', 'scripts/download-bundled-jit.mjs', '--platform=linux'],
   ],
   win: [
     ['zx', 'scripts/download-bundled-uv.mjs', '--platform=win'],
+    ['zx', 'scripts/download-bundled-jit.mjs', '--platform=win'],
     ['zx', 'scripts/download-bundled-node.mjs', '--platform=win'],
   ],
 };

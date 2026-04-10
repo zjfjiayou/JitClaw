@@ -1,6 +1,6 @@
 {
     "name": "jitclaw",
-    "version": "0.0.1-beta.2",
+    "version": "0.0.1-beta.3",
     "pnpm": {
         "onlyBuiltDependencies": [
             "@discordjs/opus",
@@ -32,7 +32,7 @@
     "license": "MIT",
     "private": true,
     "scripts": {
-        "init": "pnpm install && pnpm run uv:download",
+        "init": "pnpm install && pnpm run uv:download && pnpm run jit:download",
         "dev": "vite",
         "build": "zx scripts/prepare-packaging-binaries.mjs && vite build && zx scripts/bundle-openclaw.mjs && zx scripts/bundle-openclaw-plugins.mjs && electron-builder && pnpm run dedupe:update-manifests",
         "build:vite": "vite build",
@@ -50,6 +50,11 @@
         "uv:download:win": "zx scripts/download-bundled-uv.mjs --platform=win",
         "uv:download:linux": "zx scripts/download-bundled-uv.mjs --platform=linux",
         "uv:download:all": "zx scripts/download-bundled-uv.mjs --all",
+        "jit:download": "zx scripts/download-bundled-jit.mjs",
+        "jit:download:mac": "zx scripts/download-bundled-jit.mjs --platform=mac",
+        "jit:download:win": "zx scripts/download-bundled-jit.mjs --platform=win",
+        "jit:download:linux": "zx scripts/download-bundled-jit.mjs --platform=linux",
+        "jit:download:all": "zx scripts/download-bundled-jit.mjs --all",
         "node:download:win": "zx scripts/download-bundled-node.mjs --platform=win",
         "prep:mac-binaries": "zx scripts/prepare-packaging-binaries.mjs --platform=mac",
         "prep:win-binaries": "zx scripts/prepare-packaging-binaries.mjs --platform=win",

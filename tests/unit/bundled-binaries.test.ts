@@ -38,24 +38,41 @@ describe('bundled packaging binaries', () => {
     expect(normalizePackagingPlatform('linux')).toBe('linux');
   });
 
-  it('reports missing mac arm64 uv when only x64 binary exists', () => {
-    const rootDir = createTempRoot();
-    writeBinary(rootDir, 'resources/bin/darwin-x64/uv');
-
-    expect(findMissingBundledBinaryPaths('mac', rootDir)).toEqual([
-      join(rootDir, 'resources/bin/darwin-arm64/uv'),
-    ]);
-
-    expect(() => assertBundledBinariesPresent('mac', rootDir))
-      .toThrow(/resources\/bin\/darwin-arm64\/uv/);
-  });
-
-  it('passes when both mac uv binaries exist', () => {
+  it('reports missing mac jit binaries when only uv binaries exist', () => {
     const rootDir = createTempRoot();
     writeBinary(rootDir, 'resources/bin/darwin-x64/uv');
     writeBinary(rootDir, 'resources/bin/darwin-arm64/uv');
 
+    expect(findMissingBundledBinaryPaths('mac', rootDir)).toEqual([
+      join(rootDir, 'resources/bin/darwin-x64/jit'),
+      join(rootDir, 'resources/bin/darwin-arm64/jit'),
+    ]);
+
+    expect(() => assertBundledBinariesPresent('mac', rootDir))
+      .toThrow(/resources\/bin\/darwin-x64\/jit/);
+  });
+
+  it('passes when both mac uv and jit binaries exist', () => {
+    const rootDir = createTempRoot();
+    writeBinary(rootDir, 'resources/bin/darwin-x64/uv');
+    writeBinary(rootDir, 'resources/bin/darwin-arm64/uv');
+    writeBinary(rootDir, 'resources/bin/darwin-x64/jit');
+    writeBinary(rootDir, 'resources/bin/darwin-arm64/jit');
+
     expect(findMissingBundledBinaryPaths('mac', rootDir)).toEqual([]);
     expect(() => assertBundledBinariesPresent('mac', rootDir)).not.toThrow();
+  });
+
+  it('reports missing win jit.exe when uv.exe and node.exe exist', () => {
+    const rootDir = createTempRoot();
+    writeBinary(rootDir, 'resources/bin/win32-x64/uv.exe');
+    writeBinary(rootDir, 'resources/bin/win32-x64/node.exe');
+
+    expect(findMissingBundledBinaryPaths('win', rootDir)).toEqual([
+      join(rootDir, 'resources/bin/win32-x64/jit.exe'),
+    ]);
+
+    expect(() => assertBundledBinariesPresent('win', rootDir))
+      .toThrow(/resources\/bin\/win32-x64\/jit\.exe/);
   });
 });

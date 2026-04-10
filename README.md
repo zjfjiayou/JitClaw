@@ -114,6 +114,7 @@ Known limitation: WeChat is intentionally excluded from supported cron delivery 
 ### 🧩 Extensible Skill System
 Extend your AI agents with pre-built skills. Browse, install, and manage skills through the integrated skill panel—no package managers required.
 The Skills page can display skills discovered from multiple OpenClaw sources (managed dir, workspace, and extra skill dirs), and now shows each skill's actual location so you can open the real folder directly.
+JitClaw also ships a built-in `jit` skill backed by the bundled `jit-cli` binary, so JIT backend workflows are available immediately after startup.
 
 ### 🔐 Secure New API Integration
 JitClaw uses a fixed **New API** provider. Your system access token is stored securely in the system keychain, while model-call API keys are fetched automatically when needed. The bundled config controls the base URL and discovery endpoints, and the **Usage** page shows remote billing, recent API call details, current balance, and an in-app top-up flow for EPay.
@@ -147,7 +148,7 @@ Pre-built installers are distributed through the project's OSS release channel i
 git clone https://github.com/zjfjiayou/JitClaw.git
 cd JitClaw
 
-# Initialize the project
+# Initialize the project (installs deps + downloads uv and jit-cli)
 pnpm run init
 
 # Start in development mode
@@ -323,8 +324,10 @@ Chain multiple skills together to create sophisticated automation pipelines. Pro
 
 ```bash
 # Development
-pnpm run init             # Install dependencies + download uv
+pnpm run init             # Install dependencies + download uv and jit-cli
 pnpm dev                  # Start with hot reload
+pnpm run jit:download     # Download jit-cli for the current platform
+pnpm run jit:download:all # Download jit-cli for all supported platforms
 
 # Quality
 pnpm lint                 # Run ESLint
@@ -348,6 +351,7 @@ pnpm package:linux        # Package for Linux
 ```
 
 Bundled `uv` binaries default to the USTC mirror in mainland China and fall back to GitHub releases if needed. Set `CLAWX_UV_DOWNLOAD_BASE_URL=https://your-oss.example.com/uv/{version}` to override the mirror.
+Bundled `jit-cli` binaries are downloaded from the official GitHub Releases for `zjfjiayou/jit-cli` and copied into `resources/bin/<platform-arch>/`. By default the downloader follows the latest release; if you need a pinned build, override it with `CLAWX_JIT_VERSION=<version>` or `zx scripts/download-bundled-jit.mjs --version=<version>`.
 
 On headless Linux, run Electron tests under a display server such as `xvfb-run -a pnpm run test:e2e`.
 

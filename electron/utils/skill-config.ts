@@ -6,11 +6,11 @@
  * All file I/O uses async fs/promises to avoid blocking the main thread.
  */
 import { readFile, writeFile, access, mkdir } from 'fs/promises';
-import { existsSync } from 'fs';
+import { existsSync, rmSync } from 'fs';
 import { constants } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
-import { getOpenClawDir } from './paths';
+import { getResourcesDir } from './paths';
 import { logger } from './logger';
 import { cpAsyncSafe } from './plugin-install';
 import { withConfigLock } from './config-mutex';
@@ -162,31 +162,28 @@ export async function getAllSkillConfigs(): Promise<Record<string, SkillEntry>> 
 }
 
 /**
- * Built-in skills bundled with ClawX that should be pre-deployed to
- * ~/.openclaw/skills/ on first launch.  These come from the openclaw package's
- * extensions directory and are available in both dev and packaged builds.
+ * Built-in skills bundled with JitClaw that should be mirrored into
+ * ~/.openclaw/skills/ on every startup. These come from app resources so the
+ * same source path works in both dev and packaged builds.
  */
-const BUILTIN_SKILLS = [] as const;
+const BUILTIN_SKILLS = [
+    { slug: 'jit' },
+] as const;
 
 /**
  * Ensure built-in skills are deployed to ~/.openclaw/skills/<slug>/.
- * Skips any skill that already has a SKILL.md present (idempotent).
  * Runs at app startup; all errors are logged and swallowed so they never
  * block the normal startup flow.
  */
 export async function ensureBuiltinSkillsInstalled(): Promise<void> {
     const skillsRoot = join(homedir(), '.openclaw', 'skills');
+    const resourcesDir = getResourcesDir();
 
-    for (const { slug, sourceExtension } of BUILTIN_SKILLS) {
+    await mkdir(skillsRoot, { recursive: true });
+
+    for (const { slug } of BUILTIN_SKILLS) {
         const targetDir = join(skillsRoot, slug);
-        const targetManifest = join(targetDir, 'SKILL.md');
-
-        if (existsSync(targetManifest)) {
-            continue; // already installed
-        }
-
-        const openclawDir = getOpenClawDir();
-        const sourceDir = join(openclawDir, 'extensions', sourceExtension, 'skills', slug);
+        const sourceDir = join(resourcesDir, 'skills', 'builtin', slug);
 
         if (!existsSync(join(sourceDir, 'SKILL.md'))) {
             logger.warn(`Built-in skill source not found, skipping: ${sourceDir}`);
@@ -194,9 +191,9 @@ export async function ensureBuiltinSkillsInstalled(): Promise<void> {
         }
 
         try {
-            await mkdir(targetDir, { recursive: true });
+            rmSync(targetDir, { recursive: true, force: true });
             await cpAsyncSafe(sourceDir, targetDir);
-            logger.info(`Installed built-in skill: ${slug} -> ${targetDir}`);
+            logger.info(`Installed/updated built-in skill: ${slug} -> ${targetDir}`);
         } catch (error) {
             logger.warn(`Failed to install built-in skill ${slug}:`, error);
         }

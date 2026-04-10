@@ -17,14 +17,19 @@ export const PLATFORM_REQUIREMENTS = {
   mac: [
     ['resources', 'bin', 'darwin-x64', 'uv'],
     ['resources', 'bin', 'darwin-arm64', 'uv'],
+    ['resources', 'bin', 'darwin-x64', 'jit'],
+    ['resources', 'bin', 'darwin-arm64', 'jit'],
   ],
   win: [
     ['resources', 'bin', 'win32-x64', 'uv.exe'],
     ['resources', 'bin', 'win32-x64', 'node.exe'],
+    ['resources', 'bin', 'win32-x64', 'jit.exe'],
   ],
   linux: [
     ['resources', 'bin', 'linux-x64', 'uv'],
     ['resources', 'bin', 'linux-arm64', 'uv'],
+    ['resources', 'bin', 'linux-x64', 'jit'],
+    ['resources', 'bin', 'linux-arm64', 'jit'],
   ],
 };
 

@@ -381,12 +381,14 @@ async function initialize(): Promise<void> {
     });
   }
 
-  // Pre-deploy built-in skills (feishu-doc, feishu-drive, feishu-perm, feishu-wiki)
-  // to ~/.openclaw/skills/ so they are immediately available without manual install.
+  // Pre-deploy built-in skills to ~/.openclaw/skills/ so they are immediately
+  // available without manual install.
   if (!isE2EMode) {
-    void ensureBuiltinSkillsInstalled().catch((error) => {
+    try {
+      await ensureBuiltinSkillsInstalled();
+    } catch (error) {
       logger.warn('Failed to install built-in skills:', error);
-    });
+    }
   }
 
   // Pre-deploy/upgrade bundled OpenClaw plugins (dingtalk, wecom, feishu, wechat)

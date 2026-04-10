@@ -1,10 +1,11 @@
 #!/usr/bin/env zx
 
 import 'zx/globals';
+import { BUNDLED_UV_VERSION } from './lib/bundled-versions.mjs';
 import { resolveUvDownloadUrls } from './lib/uv-download.mjs';
 
 const ROOT_DIR = path.resolve(__dirname, '..');
-const UV_VERSION = '0.10.0';
+const UV_VERSION = BUNDLED_UV_VERSION;
 const OUTPUT_BASE = path.join(ROOT_DIR, 'resources', 'bin');
 const DEFAULT_DOWNLOAD_TIMEOUT_MS = 30_000;
 
