@@ -524,7 +524,6 @@ describe('sanitizeOpenClawConfig', () => {
     expect(dingtalk.clientSecret).toBe('dt-secret');
   });
 });
-});
 
 describe('auth-backed provider discovery', () => {
   beforeEach(async () => {
