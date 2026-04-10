@@ -241,11 +241,12 @@ export async function getProviderFallbackModelRefs(config: ProviderConfig): Prom
 }
 
 type GatewayRefreshMode = 'reload' | 'restart';
+type GatewayRefreshOptions = { delayMs?: number; onlyIfRunning?: boolean; mode?: GatewayRefreshMode };
 
 function scheduleGatewayRefresh(
   gatewayManager: GatewayManager | undefined,
   message: string,
-  options?: { delayMs?: number; onlyIfRunning?: boolean; mode?: GatewayRefreshMode },
+  options?: GatewayRefreshOptions,
 ): void {
   if (!gatewayManager) {
     return;
@@ -645,6 +646,7 @@ export async function syncUpdatedProviderToRuntime(
   config: ProviderConfig,
   apiKey: string | undefined,
   gatewayManager?: GatewayManager,
+  refreshOptions?: GatewayRefreshOptions,
 ): Promise<void> {
   const context = await syncProviderToRuntime(config, apiKey);
   if (!context) {
@@ -686,6 +688,7 @@ export async function syncUpdatedProviderToRuntime(
   scheduleGatewayRefresh(
     gatewayManager,
     `Scheduling Gateway reload after updating provider "${ock}" config`,
+    refreshOptions,
   );
 }
 

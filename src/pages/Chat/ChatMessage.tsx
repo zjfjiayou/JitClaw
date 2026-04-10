@@ -29,6 +29,7 @@ interface ChatMessageProps {
 }
 
 interface ExtractedImage { url?: string; data?: string; mimeType: string; }
+interface ThumbnailState { requestKey: string; src: string | null; }
 
 const thumbnailRequests = new Map<string, Promise<string | null>>();
 
@@ -48,16 +49,16 @@ function ImageAttachment({
   mode: 'user' | 'assistant';
   onPreview: (src: string) => void;
 }) {
-  const [src, setSrc] = useState<string | null>(file.preview);
+  const [thumbnail, setThumbnail] = useState<ThumbnailState | null>(null);
+  const requestKey = file.filePath && file.mimeType.startsWith('image/')
+    ? `${file.filePath}|${file.mimeType}`
+    : null;
+  const loadedRequestKey = thumbnail?.requestKey ?? null;
+  const src = file.preview ?? (loadedRequestKey === requestKey ? thumbnail?.src ?? null : null);
 
   useEffect(() => {
-    setSrc(file.preview);
-  }, [file.preview]);
-
-  useEffect(() => {
-    if (src || !file.filePath || !file.mimeType.startsWith('image/')) return;
+    if (!requestKey || !file.filePath || file.preview || loadedRequestKey === requestKey) return;
     let cancelled = false;
-    const requestKey = `${file.filePath}|${file.mimeType}`;
     let request = thumbnailRequests.get(requestKey);
     if (!request) {
       request = invokeIpc<Record<string, { preview: string | null; fileSize: number }>>(
@@ -73,14 +74,14 @@ function ImageAttachment({
     }
 
     request.then((preview) => {
-      if (!cancelled && preview) {
-        setSrc(preview);
+      if (!cancelled) {
+        setThumbnail({ requestKey, src: preview });
       }
     });
     return () => {
       cancelled = true;
     };
-  }, [file.filePath, file.mimeType, src]);
+  }, [file.filePath, file.mimeType, file.preview, loadedRequestKey, requestKey]);
 
   if (!src) {
     return (

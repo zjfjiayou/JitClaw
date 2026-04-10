@@ -1,6 +1,6 @@
 import { app } from 'electron';
 import path from 'path';
-import { existsSync, readFileSync, mkdirSync, rmSync } from 'fs';
+import { existsSync, rmSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 
@@ -26,7 +26,7 @@ import { buildProxyEnv, resolveProxySettings } from '../utils/proxy';
 import { syncProxyConfigToOpenClaw } from '../utils/openclaw-proxy';
 import { logger } from '../utils/logger';
 import { prependPathEntry } from '../utils/env-path';
-import { copyPluginFromNodeModules, fixupPluginManifest, cpSyncSafe } from '../utils/plugin-install';
+import { buildCandidateSources, ensurePluginInstalled } from '../utils/plugin-install';
 import { stripSystemdSupervisorEnv } from './config-sync-env';
 
 
@@ -45,12 +45,11 @@ export interface GatewayLaunchContext {
 
 // ── Auto-upgrade bundled plugins on startup ──────────────────────
 
-const CHANNEL_PLUGIN_MAP: Record<string, { dirName: string; npmName: string }> = {
-  dingtalk: { dirName: 'dingtalk', npmName: '@soimy/dingtalk' },
-  wecom: { dirName: 'wecom', npmName: '@wecom/wecom-openclaw-plugin' },
-  feishu: { dirName: 'feishu-openclaw-plugin', npmName: '@larksuite/openclaw-lark' },
-
-  'openclaw-weixin': { dirName: 'openclaw-weixin', npmName: '@tencent-weixin/openclaw-weixin' },
+const CHANNEL_PLUGIN_MAP: Record<string, { dirName: string; label: string }> = {
+  dingtalk: { dirName: 'dingtalk', label: 'DingTalk' },
+  wecom: { dirName: 'wecom', label: 'WeCom' },
+  feishu: { dirName: 'feishu-openclaw-plugin', label: 'Feishu' },
+  'openclaw-weixin': { dirName: 'openclaw-weixin', label: 'WeChat' },
 };
 
 /**
@@ -75,91 +74,18 @@ function cleanupStaleBuiltInExtensions(): void {
   }
 }
 
-function readPluginVersion(pkgJsonPath: string): string | null {
-  try {
-    const raw = readFileSync(fsPath(pkgJsonPath), 'utf-8');
-    const parsed = JSON.parse(raw) as { version?: string };
-    return parsed.version ?? null;
-  } catch {
-    return null;
-  }
-}
-
-function buildBundledPluginSources(pluginDirName: string): string[] {
-  return app.isPackaged
-    ? [
-      join(process.resourcesPath, 'openclaw-plugins', pluginDirName),
-      join(process.resourcesPath, 'app.asar.unpacked', 'build', 'openclaw-plugins', pluginDirName),
-      join(process.resourcesPath, 'app.asar.unpacked', 'openclaw-plugins', pluginDirName),
-    ]
-    : [
-      join(app.getAppPath(), 'build', 'openclaw-plugins', pluginDirName),
-      join(process.cwd(), 'build', 'openclaw-plugins', pluginDirName),
-    ];
-}
-
 /**
  * Auto-upgrade all configured channel plugins before Gateway start.
- * - Packaged mode: uses bundled plugins from resources/ (includes deps)
- * - Dev mode: falls back to node_modules/ with pnpm-aware dep collection
+ * Uses the same version-aware source preference as the startup installer.
  */
 function ensureConfiguredPluginsUpgraded(configuredChannels: string[]): void {
   for (const channelType of configuredChannels) {
     const pluginInfo = CHANNEL_PLUGIN_MAP[channelType];
     if (!pluginInfo) continue;
-    const { dirName, npmName } = pluginInfo;
-
-    const targetDir = join(homedir(), '.openclaw', 'extensions', dirName);
-    const targetManifest = join(targetDir, 'openclaw.plugin.json');
-    const isInstalled = existsSync(fsPath(targetManifest));
-    const installedVersion = isInstalled ? readPluginVersion(join(targetDir, 'package.json')) : null;
-
-    // Try bundled sources first (packaged mode or if bundle-plugins was run)
-    const bundledSources = buildBundledPluginSources(dirName);
-    const bundledDir = bundledSources.find((dir) => existsSync(fsPath(join(dir, 'openclaw.plugin.json'))));
-
-    if (bundledDir) {
-      const sourceVersion = readPluginVersion(join(bundledDir, 'package.json'));
-      // Install or upgrade if version differs or plugin not installed
-      if (!isInstalled || (sourceVersion && installedVersion && sourceVersion !== installedVersion)) {
-        logger.info(`[plugin] ${isInstalled ? 'Auto-upgrading' : 'Installing'} ${channelType} plugin${isInstalled ? `: ${installedVersion} → ${sourceVersion}` : `: ${sourceVersion}`} (bundled)`);
-        try {
-          mkdirSync(fsPath(join(homedir(), '.openclaw', 'extensions')), { recursive: true });
-          rmSync(fsPath(targetDir), { recursive: true, force: true });
-          cpSyncSafe(bundledDir, targetDir);
-          fixupPluginManifest(targetDir);
-        } catch (err) {
-          logger.warn(`[plugin] Failed to ${isInstalled ? 'auto-upgrade' : 'install'} ${channelType} plugin:`, err);
-        }
-      } else if (isInstalled) {
-        // Same version already installed — still patch manifest ID in case it was
-        // never corrected (e.g. installed before MANIFEST_ID_FIXES included this plugin).
-        fixupPluginManifest(targetDir);
-      }
-      continue;
-    }
-
-    // Dev mode fallback: copy from node_modules/ with pnpm dep resolution
-    if (!app.isPackaged) {
-      const npmPkgPath = join(process.cwd(), 'node_modules', ...npmName.split('/'));
-      if (!existsSync(fsPath(join(npmPkgPath, 'openclaw.plugin.json')))) continue;
-      const sourceVersion = readPluginVersion(join(npmPkgPath, 'package.json'));
-      if (!sourceVersion) continue;
-      // Skip only if installed AND same version — but still patch manifest ID.
-      if (isInstalled && installedVersion && sourceVersion === installedVersion) {
-        fixupPluginManifest(targetDir);
-        continue;
-      }
-
-      logger.info(`[plugin] ${isInstalled ? 'Auto-upgrading' : 'Installing'} ${channelType} plugin${isInstalled ? `: ${installedVersion} → ${sourceVersion}` : `: ${sourceVersion}`} (dev/node_modules)`);
-
-      try {
-        mkdirSync(fsPath(join(homedir(), '.openclaw', 'extensions')), { recursive: true });
-        copyPluginFromNodeModules(npmPkgPath, targetDir, npmName);
-        fixupPluginManifest(targetDir);
-      } catch (err) {
-        logger.warn(`[plugin] Failed to ${isInstalled ? 'auto-upgrade' : 'install'} ${channelType} plugin from node_modules:`, err);
-      }
+    const { dirName, label } = pluginInfo;
+    const result = ensurePluginInstalled(dirName, buildCandidateSources(dirName), label);
+    if (result.warning) {
+      logger.warn(`[plugin] ${label}: ${result.warning}`);
     }
   }
 }

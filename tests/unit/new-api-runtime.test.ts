@@ -259,8 +259,8 @@ describe('new api runtime', () => {
     expect(result).toBeNull();
   });
 
-  it('syncs stored credentials to runtime on startup when only an access token exists', async () => {
-    const gatewayManager = { debouncedReload: vi.fn(), getStatus: vi.fn(() => ({ state: 'running' })) } as never;
+  it('syncs stored credentials to runtime on startup without forcing a pre-start gateway refresh', async () => {
+    const gatewayManager = { debouncedReload: vi.fn(), getStatus: vi.fn(() => ({ state: 'stopped' })) } as never;
     mocks.getApiKey.mockImplementation(async (keyId: string) => {
       if (keyId === 'new-api-access') return 'saved-access-token';
       if (keyId === 'new-api') return null;
@@ -272,11 +272,16 @@ describe('new api runtime', () => {
     });
 
     const { syncStoredNewApiCredentialsToRuntime } = await import('@electron/services/new-api-runtime');
-    await syncStoredNewApiCredentialsToRuntime(gatewayManager);
+    await syncStoredNewApiCredentialsToRuntime(gatewayManager, { onlyIfRunning: true });
 
     expect(mocks.pickBestApiKey).toHaveBeenCalledWith('saved-access-token');
     expect(mocks.storeApiKey).toHaveBeenCalledWith('new-api', 'sk-fresh');
-    expect(mocks.syncUpdatedProviderToRuntime).toHaveBeenCalledWith(PROVIDER_CONFIG, 'sk-fresh', gatewayManager);
+    expect(mocks.syncUpdatedProviderToRuntime).toHaveBeenCalledWith(
+      PROVIDER_CONFIG,
+      'sk-fresh',
+      gatewayManager,
+      { onlyIfRunning: true },
+    );
   });
 
   it('skips startup sync when there are no stored credentials', async () => {

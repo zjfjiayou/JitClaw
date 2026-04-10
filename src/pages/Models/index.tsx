@@ -563,7 +563,7 @@ export function Models() {
           >
             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
               <div>
-                <h2 className="text-3xl font-serif text-foreground font-normal tracking-tight" style={{ fontFamily: 'Georgia, Cambria, \"Times New Roman\", Times, serif' }}>
+                <h2 className="text-3xl font-serif text-foreground font-normal tracking-tight" style={{ fontFamily: 'Georgia, Cambria, "Times New Roman", Times, serif' }}>
                   {t('dashboard:usage.newApi.title')}
                 </h2>
                 <p className="mt-2 max-w-2xl text-[15px] text-muted-foreground">

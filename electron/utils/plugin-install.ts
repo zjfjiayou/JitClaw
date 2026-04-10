@@ -250,6 +250,215 @@ function readPluginVersion(pkgJsonPath: string): string | null {
   }
 }
 
+function parseVersion(version: string): { core: number[]; prerelease: Array<number | string> } | null {
+  const trimmed = version.trim();
+  if (!trimmed) return null;
+
+  const withoutBuild = trimmed.split('+', 1)[0];
+  const [corePart, prereleasePart] = withoutBuild.split('-', 2);
+  const core = corePart.split('.').map((segment) => {
+    if (!/^\d+$/.test(segment)) {
+      return Number.NaN;
+    }
+    return Number(segment);
+  });
+  if (core.some(Number.isNaN)) {
+    return null;
+  }
+
+  const prerelease = prereleasePart
+    ? prereleasePart.split('.').map((segment) => (/^\d+$/.test(segment) ? Number(segment) : segment))
+    : [];
+
+  return { core, prerelease };
+}
+
+function compareVersions(left: string, right: string): number | null {
+  if (left === right) return 0;
+
+  const parsedLeft = parseVersion(left);
+  const parsedRight = parseVersion(right);
+  if (!parsedLeft || !parsedRight) {
+    return null;
+  }
+
+  const coreLength = Math.max(parsedLeft.core.length, parsedRight.core.length);
+  for (let index = 0; index < coreLength; index += 1) {
+    const leftValue = parsedLeft.core[index] ?? 0;
+    const rightValue = parsedRight.core[index] ?? 0;
+    if (leftValue !== rightValue) {
+      return leftValue > rightValue ? 1 : -1;
+    }
+  }
+
+  const leftPrerelease = parsedLeft.prerelease;
+  const rightPrerelease = parsedRight.prerelease;
+  if (leftPrerelease.length === 0 && rightPrerelease.length === 0) {
+    return 0;
+  }
+  if (leftPrerelease.length === 0) {
+    return 1;
+  }
+  if (rightPrerelease.length === 0) {
+    return -1;
+  }
+
+  const prereleaseLength = Math.max(leftPrerelease.length, rightPrerelease.length);
+  for (let index = 0; index < prereleaseLength; index += 1) {
+    const leftValue = leftPrerelease[index];
+    const rightValue = rightPrerelease[index];
+    if (leftValue === undefined) return -1;
+    if (rightValue === undefined) return 1;
+    if (leftValue === rightValue) continue;
+
+    const leftIsNumber = typeof leftValue === 'number';
+    const rightIsNumber = typeof rightValue === 'number';
+    if (leftIsNumber && rightIsNumber) {
+      return leftValue > rightValue ? 1 : -1;
+    }
+    if (leftIsNumber !== rightIsNumber) {
+      return leftIsNumber ? -1 : 1;
+    }
+
+    return String(leftValue).localeCompare(String(rightValue));
+  }
+
+  return 0;
+}
+
+interface BundledPluginSource {
+  kind: 'bundled';
+  dir: string;
+  version: string | null;
+}
+
+interface NodeModulesPluginSource {
+  kind: 'dev/node_modules';
+  dir: string;
+  npmName: string;
+  version: string | null;
+}
+
+type PreferredPluginSource = BundledPluginSource | NodeModulesPluginSource;
+type PluginInstallResult = { installed: boolean; warning?: string };
+type PluginInstallAttempt = { attempt: number; code?: string; name?: string; message: string };
+
+function hasPluginManifest(dir: string): boolean {
+  return existsSync(fsPath(join(dir, 'openclaw.plugin.json')));
+}
+
+function buildMissingBundledMirrorWarning(pluginLabel: string, candidateSources: string[]): string {
+  return `Bundled ${pluginLabel} plugin mirror not found. Checked: ${candidateSources.join(' | ')}`;
+}
+
+function resolveBundledPluginSource(candidateSources: string[]): BundledPluginSource | null {
+  const dir = candidateSources.find((candidate) => hasPluginManifest(candidate));
+  if (!dir) {
+    return null;
+  }
+  return {
+    kind: 'bundled',
+    dir,
+    version: readPluginVersion(join(dir, 'package.json')),
+  };
+}
+
+function resolveNodeModulesPluginSource(pluginDirName: string): NodeModulesPluginSource | null {
+  if (app.isPackaged) {
+    return null;
+  }
+
+  const npmName = PLUGIN_NPM_NAMES[pluginDirName];
+  if (!npmName) {
+    return null;
+  }
+
+  const dir = join(process.cwd(), 'node_modules', ...npmName.split('/'));
+  if (!hasPluginManifest(dir)) {
+    return null;
+  }
+
+  return {
+    kind: 'dev/node_modules',
+    dir,
+    npmName,
+    version: readPluginVersion(join(dir, 'package.json')),
+  };
+}
+
+export function resolvePreferredPluginSource(
+  pluginDirName: string,
+  candidateSources: string[],
+): PreferredPluginSource | null {
+  const bundledSource = resolveBundledPluginSource(candidateSources);
+  if (app.isPackaged) {
+    return bundledSource;
+  }
+
+  const devSource = resolveNodeModulesPluginSource(pluginDirName);
+  if (!devSource) {
+    return bundledSource;
+  }
+  if (!bundledSource) {
+    return devSource;
+  }
+
+  if (!bundledSource.version && devSource.version) {
+    logger.info(
+      `[plugin] Preferring dev/node_modules source for ${pluginDirName}: unknown -> ${devSource.version}`,
+    );
+    return devSource;
+  }
+
+  if (bundledSource.version && devSource.version) {
+    const comparison = compareVersions(devSource.version, bundledSource.version);
+    if (comparison !== null && comparison > 0) {
+      logger.info(
+        `[plugin] Preferring dev/node_modules source for ${pluginDirName}: ${bundledSource.version} -> ${devSource.version}`,
+      );
+      return devSource;
+    }
+  }
+
+  return bundledSource;
+}
+
+function shouldInstallFromSource(installedVersion: string | null, sourceVersion: string | null): boolean {
+  if (!installedVersion) {
+    return true;
+  }
+  if (!sourceVersion) {
+    return false;
+  }
+
+  const comparison = compareVersions(sourceVersion, installedVersion);
+  if (comparison === null) {
+    return false;
+  }
+  return comparison > 0;
+}
+
+function shouldKeepInstalledPlugin(
+  pluginLabel: string,
+  installedVersion: string | null,
+  sourceVersion: string | null,
+): boolean {
+  if (shouldInstallFromSource(installedVersion, sourceVersion)) {
+    return false;
+  }
+
+  if (installedVersion && sourceVersion) {
+    const comparison = compareVersions(sourceVersion, installedVersion);
+    if (comparison !== null && comparison < 0) {
+      logger.info(
+        `[plugin] Keeping newer installed ${pluginLabel} plugin: ${installedVersion} > ${sourceVersion}`,
+      );
+    }
+  }
+
+  return true;
+}
+
 // ── pnpm-aware node_modules copy helpers ─────────────────────────────────────
 
 /** Walk up from a path until we find a parent named node_modules. */
@@ -360,121 +569,144 @@ export function copyPluginFromNodeModules(npmPkgPath: string, targetDir: string,
 
 // ── Core install / upgrade logic ─────────────────────────────────────────────
 
-export function ensurePluginInstalled(
+function installBundledPlugin(
   pluginDirName: string,
-  candidateSources: string[],
   pluginLabel: string,
-): { installed: boolean; warning?: string } {
-  const targetDir = join(homedir(), '.openclaw', 'extensions', pluginDirName);
-  const targetManifest = join(targetDir, 'openclaw.plugin.json');
-  const targetPkgJson = join(targetDir, 'package.json');
+  targetDir: string,
+  source: BundledPluginSource,
+): PluginInstallResult {
+  const extensionsRoot = join(homedir(), '.openclaw', 'extensions');
+  const attempts: PluginInstallAttempt[] = [];
+  const maxAttempts = process.platform === 'win32' ? 2 : 1;
 
-  const sourceDir = candidateSources.find((dir) => existsSync(fsPath(join(dir, 'openclaw.plugin.json'))));
-
-  // If already installed, check whether an upgrade is available
-  if (existsSync(fsPath(targetManifest))) {
-    if (!sourceDir) return { installed: true }; // no bundled source to compare, keep existing
-    const installedVersion = readPluginVersion(targetPkgJson);
-    const sourceVersion = readPluginVersion(join(sourceDir, 'package.json'));
-    if (!sourceVersion || !installedVersion || sourceVersion === installedVersion) {
-      return { installed: true }; // same version or unable to compare
-    }
-    // Version differs — fall through to overwrite install
-    logger.info(
-      `[plugin] Upgrading ${pluginLabel} plugin: ${installedVersion} → ${sourceVersion}`,
-    );
-  }
-
-  // Fresh install or upgrade — try bundled/build sources first
-  if (sourceDir) {
-    const extensionsRoot = join(homedir(), '.openclaw', 'extensions');
-    const attempts: Array<{ attempt: number; code?: string; name?: string; message: string }> = [];
-    const maxAttempts = process.platform === 'win32' ? 2 : 1;
-
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        mkdirSync(fsPath(extensionsRoot), { recursive: true });
-        rmSync(fsPath(targetDir), { recursive: true, force: true });
-        cpSyncSafe(sourceDir, targetDir);
-        if (!existsSync(fsPath(join(targetDir, 'openclaw.plugin.json')))) {
-          return { installed: false, warning: `Failed to install ${pluginLabel} plugin mirror (manifest missing).` };
-        }
-        fixupPluginManifest(targetDir);
-        logger.info(`Installed ${pluginLabel} plugin from bundled mirror: ${sourceDir}`);
-        return { installed: true };
-      } catch (error) {
-        const diagnostic = toErrorDiagnostic(error);
-        attempts.push({ attempt, ...diagnostic });
-        if (attempt < maxAttempts) {
-          try {
-            rmSync(fsPath(targetDir), { recursive: true, force: true });
-          } catch {
-            // Ignore cleanup failures before retry.
-          }
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      mkdirSync(fsPath(extensionsRoot), { recursive: true });
+      rmSync(fsPath(targetDir), { recursive: true, force: true });
+      cpSyncSafe(source.dir, targetDir);
+      if (!hasPluginManifest(targetDir)) {
+        return { installed: false, warning: `Failed to install ${pluginLabel} plugin mirror (manifest missing).` };
+      }
+      fixupPluginManifest(targetDir);
+      logger.info(`Installed ${pluginLabel} plugin from bundled mirror: ${source.dir}`);
+      return { installed: true };
+    } catch (error) {
+      attempts.push({ attempt, ...toErrorDiagnostic(error) });
+      if (attempt < maxAttempts) {
+        try {
+          rmSync(fsPath(targetDir), { recursive: true, force: true });
+        } catch {
+          // Ignore cleanup failures before retry.
         }
       }
     }
+  }
 
+  logger.warn(
+    `[plugin] Bundled mirror install failed for ${pluginLabel}`,
+    {
+      pluginDirName,
+      pluginLabel,
+      sourceDir: source.dir,
+      targetDir,
+      platform: process.platform,
+      attempts,
+    },
+  );
+
+  return { installed: false, warning: `Failed to install bundled ${pluginLabel} plugin mirror` };
+}
+
+function installNodeModulesPlugin(
+  pluginDirName: string,
+  pluginLabel: string,
+  targetDir: string,
+  source: NodeModulesPluginSource,
+  installedVersion: string | null,
+  isInstalled: boolean,
+): PluginInstallResult {
+  logger.info(
+    `[plugin] ${isInstalled ? 'Upgrading' : 'Installing'} ${pluginLabel} plugin` +
+    `${source.version ? `${installedVersion ? `: ${installedVersion} -> ${source.version}` : `: ${source.version}`}` : ''}` +
+    ' (dev/node_modules)',
+  );
+
+  try {
+    mkdirSync(fsPath(join(homedir(), '.openclaw', 'extensions')), { recursive: true });
+    copyPluginFromNodeModules(source.dir, targetDir, source.npmName);
+    fixupPluginManifest(targetDir);
+    if (hasPluginManifest(targetDir)) {
+      return { installed: true };
+    }
+  } catch (err) {
     logger.warn(
-      `[plugin] Bundled mirror install failed for ${pluginLabel}`,
+      `[plugin] Failed to install ${pluginLabel} plugin from node_modules`,
       {
         pluginDirName,
         pluginLabel,
-        sourceDir,
+        npmName: source.npmName,
+        npmPkgPath: source.dir,
         targetDir,
         platform: process.platform,
-        attempts,
+        ...toErrorDiagnostic(err),
       },
     );
-
-    return { installed: false, warning: `Failed to install bundled ${pluginLabel} plugin mirror` };
-  }
-
-  // Dev mode fallback: copy from node_modules with pnpm-aware dep resolution
-  if (!app.isPackaged) {
-    const npmName = PLUGIN_NPM_NAMES[pluginDirName];
-    if (npmName) {
-      const npmPkgPath = join(process.cwd(), 'node_modules', ...npmName.split('/'));
-      if (existsSync(fsPath(join(npmPkgPath, 'openclaw.plugin.json')))) {
-        const installedVersion = existsSync(fsPath(targetPkgJson)) ? readPluginVersion(targetPkgJson) : null;
-        const sourceVersion = readPluginVersion(join(npmPkgPath, 'package.json'));
-        if (sourceVersion && (!installedVersion || sourceVersion !== installedVersion)) {
-          logger.info(
-            `[plugin] ${installedVersion ? 'Upgrading' : 'Installing'} ${pluginLabel} plugin` +
-            `${installedVersion ? `: ${installedVersion} → ${sourceVersion}` : `: ${sourceVersion}`} (dev/node_modules)`,
-          );
-          try {
-            mkdirSync(fsPath(join(homedir(), '.openclaw', 'extensions')), { recursive: true });
-            copyPluginFromNodeModules(npmPkgPath, targetDir, npmName);
-            fixupPluginManifest(targetDir);
-            if (existsSync(fsPath(join(targetDir, 'openclaw.plugin.json')))) {
-              return { installed: true };
-            }
-          } catch (err) {
-            logger.warn(
-              `[plugin] Failed to install ${pluginLabel} plugin from node_modules`,
-              {
-                pluginDirName,
-                pluginLabel,
-                npmName,
-                npmPkgPath,
-                targetDir,
-                platform: process.platform,
-                ...toErrorDiagnostic(err),
-              },
-            );
-          }
-        } else if (existsSync(fsPath(targetManifest))) {
-          return { installed: true }; // same version, already installed
-        }
-      }
-    }
   }
 
   return {
     installed: false,
-    warning: `Bundled ${pluginLabel} plugin mirror not found. Checked: ${candidateSources.join(' | ')}`,
+    warning: `Failed to install ${pluginLabel} plugin from dev/node_modules`,
   };
+}
+
+export function ensurePluginInstalled(
+  pluginDirName: string,
+  candidateSources: string[],
+  pluginLabel: string,
+): PluginInstallResult {
+  const targetDir = join(homedir(), '.openclaw', 'extensions', pluginDirName);
+  const targetManifest = join(targetDir, 'openclaw.plugin.json');
+  const targetPkgJson = join(targetDir, 'package.json');
+  const preferredSource = resolvePreferredPluginSource(pluginDirName, candidateSources);
+  const isInstalled = existsSync(fsPath(targetManifest));
+  const installedVersion = isInstalled ? readPluginVersion(targetPkgJson) : null;
+
+  if (isInstalled) {
+    if (!preferredSource) {
+      fixupPluginManifest(targetDir);
+      return { installed: true };
+    }
+
+    if (shouldKeepInstalledPlugin(pluginLabel, installedVersion, preferredSource.version)) {
+      fixupPluginManifest(targetDir);
+      return { installed: true };
+    }
+
+    logger.info(
+      `[plugin] Upgrading ${pluginLabel} plugin: ${installedVersion} -> ${preferredSource.version}` +
+      `${preferredSource.kind === 'dev/node_modules' ? ' (dev/node_modules)' : ''}`,
+    );
+  }
+
+  if (!preferredSource) {
+    return {
+      installed: false,
+      warning: buildMissingBundledMirrorWarning(pluginLabel, candidateSources),
+    };
+  }
+
+  if (preferredSource.kind === 'bundled') {
+    return installBundledPlugin(pluginDirName, pluginLabel, targetDir, preferredSource);
+  }
+
+  return installNodeModulesPlugin(
+    pluginDirName,
+    pluginLabel,
+    targetDir,
+    preferredSource,
+    installedVersion,
+    isInstalled,
+  );
 }
 
 // ── Candidate source path builder ────────────────────────────────────────────

@@ -217,4 +217,88 @@ describe('plugin installer diagnostics', () => {
       }),
     );
   });
+
+  it('prefers newer dev node_modules plugins over stale bundled mirrors in dev mode', async () => {
+    mockApp.isPackaged = false;
+
+    const bundledDir = '/bundle/dingtalk';
+    const bundledManifest = `${bundledDir}/openclaw.plugin.json`;
+    const bundledPkg = `${bundledDir}/package.json`;
+    const npmDir = `${process.cwd()}/node_modules/@soimy/dingtalk`;
+    const npmManifest = `${npmDir}/openclaw.plugin.json`;
+    const npmPkg = `${npmDir}/package.json`;
+    const targetManifest = '/home/test/.openclaw/extensions/dingtalk/openclaw.plugin.json';
+    const targetPkg = '/home/test/.openclaw/extensions/dingtalk/package.json';
+
+    mockExistsSync.mockImplementation((input: string) => {
+      const normalized = String(input);
+      return normalized === bundledManifest
+        || normalized === npmManifest
+        || normalized === targetManifest;
+    });
+    mockReadFileSync.mockImplementation((input: string) => {
+      const normalized = String(input);
+      if (normalized === bundledPkg) {
+        return JSON.stringify({ name: '@soimy/dingtalk', version: '3.5.1' });
+      }
+      if (normalized === npmPkg) {
+        return JSON.stringify({ name: '@soimy/dingtalk', version: '3.5.3', peerDependencies: {} });
+      }
+      if (normalized === targetPkg) {
+        return JSON.stringify({ name: '@soimy/dingtalk', version: '3.5.1', peerDependencies: {} });
+      }
+      if (normalized.endsWith('openclaw.plugin.json')) {
+        return JSON.stringify({ id: 'dingtalk' });
+      }
+      return '{}';
+    });
+
+    const { ensurePluginInstalled } = await import('@electron/utils/plugin-install');
+    const result = ensurePluginInstalled('dingtalk', [bundledDir], 'DingTalk');
+
+    expect(result).toEqual({ installed: true });
+    expect(mockLoggerInfo).toHaveBeenCalledWith(
+      '[plugin] Preferring dev/node_modules source for dingtalk: 3.5.1 -> 3.5.3',
+    );
+    expect(mockCpSync).toHaveBeenCalledWith(
+      expect.stringContaining('/node_modules/@soimy/dingtalk'),
+      expect.stringContaining('/home/test/.openclaw/extensions/dingtalk'),
+      expect.objectContaining({ recursive: true, dereference: true }),
+    );
+  });
+
+  it('keeps a newer installed plugin instead of downgrading to an older bundled mirror', async () => {
+    const bundledDir = '/bundle/dingtalk';
+    const bundledManifest = `${bundledDir}/openclaw.plugin.json`;
+    const bundledPkg = `${bundledDir}/package.json`;
+    const targetManifest = '/home/test/.openclaw/extensions/dingtalk/openclaw.plugin.json';
+    const targetPkg = '/home/test/.openclaw/extensions/dingtalk/package.json';
+
+    mockExistsSync.mockImplementation((input: string) => {
+      const normalized = String(input);
+      return normalized === bundledManifest || normalized === targetManifest;
+    });
+    mockReadFileSync.mockImplementation((input: string) => {
+      const normalized = String(input);
+      if (normalized === bundledPkg) {
+        return JSON.stringify({ name: '@soimy/dingtalk', version: '3.5.1' });
+      }
+      if (normalized === targetPkg) {
+        return JSON.stringify({ name: '@soimy/dingtalk', version: '3.5.3', peerDependencies: {} });
+      }
+      if (normalized.endsWith('openclaw.plugin.json')) {
+        return JSON.stringify({ id: 'dingtalk' });
+      }
+      return '{}';
+    });
+
+    const { ensurePluginInstalled } = await import('@electron/utils/plugin-install');
+    const result = ensurePluginInstalled('dingtalk', [bundledDir], 'DingTalk');
+
+    expect(result).toEqual({ installed: true });
+    expect(mockCpSync).not.toHaveBeenCalled();
+    expect(mockLoggerInfo).toHaveBeenCalledWith(
+      '[plugin] Keeping newer installed DingTalk plugin: 3.5.3 > 3.5.1',
+    );
+  });
 });

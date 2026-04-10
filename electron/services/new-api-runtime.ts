@@ -17,6 +17,10 @@ import {
 } from '../utils/new-api-config';
 import { resolveNewApiModelId } from '../utils/new-api-models';
 
+interface StartupRuntimeSyncOptions {
+  onlyIfRunning?: boolean;
+}
+
 export async function ensureNewApiAccount(modelId?: string): Promise<ProviderAccount> {
   const providerService = getProviderService();
   const config = await getNewApiConfig();
@@ -122,6 +126,7 @@ export async function refreshNewApiInferenceKeySafely(
 
 export async function syncStoredNewApiCredentialsToRuntime(
   gatewayManager?: GatewayManager,
+  options?: StartupRuntimeSyncOptions,
 ): Promise<void> {
   const accessToken = await getApiKey(NEW_API_ACCESS_TOKEN_ID);
   let inferenceKey = await getApiKey(NEW_API_ACCOUNT_ID);
@@ -143,5 +148,10 @@ export async function syncStoredNewApiCredentialsToRuntime(
   if (!inferenceKey) return;
 
   const account = await ensureNewApiAccount();
-  await syncUpdatedProviderToRuntime(providerAccountToConfig(account), inferenceKey, gatewayManager);
+  await syncUpdatedProviderToRuntime(
+    providerAccountToConfig(account),
+    inferenceKey,
+    gatewayManager,
+    options,
+  );
 }
