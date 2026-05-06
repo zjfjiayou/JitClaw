@@ -136,7 +136,7 @@ describe('setOpenClawDefaultModelWithOverride', () => {
       models: {
         providers: {
           'custom-newapi': {
-            baseUrl: 'http://49.235.172.27:3000/v1',
+            baseUrl: 'https://api.jit.pro/v1',
             api: 'openai-completions',
             models: [
               {
@@ -163,7 +163,7 @@ describe('setOpenClawDefaultModelWithOverride', () => {
       'custom-newapi',
       'custom-newapi/gpt-5',
       {
-        baseUrl: 'http://49.235.172.27:3000/v1',
+        baseUrl: 'https://api.jit.pro/v1',
         api: 'openai-completions',
       },
     );

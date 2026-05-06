@@ -288,7 +288,7 @@ describe('provider-runtime-sync refresh strategy', () => {
         id: 'new-api',
         name: 'New API',
         type: 'custom',
-        baseUrl: 'http://49.235.172.27:3000/v1',
+        baseUrl: 'https://api.jit.pro/v1',
         apiProtocol: 'openai-completions',
         model: 'gpt-5',
       }),
@@ -300,7 +300,7 @@ describe('provider-runtime-sync refresh strategy', () => {
       'main',
       'custom-newapi',
       expect.objectContaining({
-        baseUrl: 'http://49.235.172.27:3000/v1',
+        baseUrl: 'https://api.jit.pro/v1',
         api: 'openai-completions',
         apiKey: 'sk-test',
         models: [
@@ -321,7 +321,7 @@ describe('provider-runtime-sync refresh strategy', () => {
         vendorId: 'custom',
         label: 'New API',
         authMode: 'api_key',
-        baseUrl: 'http://49.235.172.27:3000/v1',
+        baseUrl: 'https://api.jit.pro/v1',
         apiProtocol: 'openai-completions',
         model: 'gpt-5',
         enabled: true,
@@ -340,7 +340,7 @@ describe('provider-runtime-sync refresh strategy', () => {
         id: 'new-api',
         name: 'New API',
         type: 'custom',
-        baseUrl: 'http://49.235.172.27:3000/v1',
+        baseUrl: 'https://api.jit.pro/v1',
         apiProtocol: 'openai-completions',
         model: 'gpt-5',
       }),
@@ -361,7 +361,7 @@ describe('provider-runtime-sync refresh strategy', () => {
       'main',
       'custom-newapi',
       expect.objectContaining({
-        baseUrl: 'http://49.235.172.27:3000/v1',
+        baseUrl: 'https://api.jit.pro/v1',
         api: 'openai-completions',
         apiKey: 'sk-test',
         models: [
@@ -392,7 +392,7 @@ describe('provider-runtime-sync refresh strategy', () => {
         id: 'new-api',
         name: 'New API',
         type: 'custom',
-        baseUrl: 'http://49.235.172.27:3000/v1',
+        baseUrl: 'https://api.jit.pro/v1',
         apiProtocol: 'openai-completions',
         model: 'gpt-5',
       }),
@@ -404,7 +404,7 @@ describe('provider-runtime-sync refresh strategy', () => {
       'custom-newapi',
       'gpt-5',
       expect.objectContaining({
-        baseUrl: 'http://49.235.172.27:3000/v1',
+        baseUrl: 'https://api.jit.pro/v1',
         api: 'openai-completions',
       }),
       expect.arrayContaining([

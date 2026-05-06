@@ -1,6 +1,6 @@
 {
   "apiLabel": "New API",
-  "baseUrl": "http://49.235.172.27:3000",
+  "baseUrl": "https://api.jit.pro/",
   "endpoints": {
     "models": "/v1/models",
     "userSelfAccessToken": "/api/user/self/access-token",
